@@ -55,8 +55,9 @@ export async function POST(request: NextRequest) {
         attendeeEmail: email,
         timezone,
       });
-    } catch (calErr) {
-      console.error("Google Calendar error:", calErr);
+    } catch (calErr: any) {
+      console.error("Google Calendar error:", calErr?.message || calErr);
+      console.error("Calendar error details:", JSON.stringify(calErr?.response?.data || calErr?.errors || "no details"));
       // Continue without calendar event — still save booking
     }
 
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      calendar_event_created: !!googleEventId,
       booking: {
         id: booking.id,
         start_time: booking.start_time,

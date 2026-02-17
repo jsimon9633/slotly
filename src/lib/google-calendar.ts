@@ -1,11 +1,16 @@
 import { google, calendar_v3 } from "googleapis";
 
-// Create authenticated Google Calendar client using service account
-function getCalendarClient(): calendar_v3.Calendar {
+/**
+ * Create authenticated Google Calendar client using service account.
+ * If `impersonateEmail` is provided, the service account will act as that user
+ * (requires domain-wide delegation in Google Workspace Admin).
+ */
+function getCalendarClient(impersonateEmail?: string): calendar_v3.Calendar {
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     scopes: ["https://www.googleapis.com/auth/calendar"],
+    subject: impersonateEmail, // impersonate the team member
   });
 
   return google.calendar({ version: "v3", auth });
@@ -37,7 +42,10 @@ export async function getFreeBusy(
 }
 
 /**
- * Create a calendar event for a booking
+ * Create a calendar event for a booking.
+ * Tries impersonation first (Workspace with domain-wide delegation),
+ * falls back to direct calendar insert (shared calendar),
+ * falls back to service account calendar with attendee invites.
  */
 export async function createCalendarEvent(params: {
   calendarId: string;
@@ -48,35 +56,68 @@ export async function createCalendarEvent(params: {
   attendeeEmail: string;
   timezone: string;
 }): Promise<string> {
-  const calendar = getCalendarClient();
-
-  const res = await calendar.events.insert({
-    calendarId: params.calendarId,
-    requestBody: {
-      summary: params.summary,
-      description: params.description,
-      start: {
-        dateTime: params.startTime,
-        timeZone: params.timezone,
-      },
-      end: {
-        dateTime: params.endTime,
-        timeZone: params.timezone,
-      },
-      attendees: [
-        { email: params.calendarId }, // the team member
-        { email: params.attendeeEmail }, // the invitee
-      ],
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: "email", minutes: 60 },
-          { method: "popup", minutes: 10 },
-        ],
-      },
+  const eventBody = {
+    summary: params.summary,
+    description: params.description,
+    start: {
+      dateTime: params.startTime,
+      timeZone: params.timezone,
     },
-    sendUpdates: "all", // Send invites to attendees
-  });
+    end: {
+      dateTime: params.endTime,
+      timeZone: params.timezone,
+    },
+    attendees: [{ email: params.attendeeEmail }],
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: "email", minutes: 60 },
+        { method: "popup", minutes: 10 },
+      ],
+    },
+  };
 
+  // Attempt 1: Impersonate the team member (works with Workspace + domain-wide delegation)
+  try {
+    const calendar = getCalendarClient(params.calendarId);
+    const res = await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: eventBody,
+      sendUpdates: "all",
+    });
+    console.log("Calendar event created via impersonation");
+    return res.data.id!;
+  } catch (err: any) {
+    console.log("Impersonation failed:", err?.message || "unknown error");
+  }
+
+  // Attempt 2: Insert directly into the shared calendar
+  try {
+    const calendar = getCalendarClient();
+    const res = await calendar.events.insert({
+      calendarId: params.calendarId,
+      requestBody: eventBody,
+      sendUpdates: "all",
+    });
+    console.log("Calendar event created via shared calendar");
+    return res.data.id!;
+  } catch (err: any) {
+    console.log("Shared calendar insert failed:", err?.message || "unknown error");
+  }
+
+  // Attempt 3: Create on service account's calendar, invite everyone
+  const calendar = getCalendarClient();
+  const res = await calendar.events.insert({
+    calendarId: "primary",
+    requestBody: {
+      ...eventBody,
+      attendees: [
+        { email: params.calendarId },
+        { email: params.attendeeEmail },
+      ],
+    },
+    sendUpdates: "all",
+  });
+  console.log("Calendar event created on service account calendar with invites");
   return res.data.id!;
 }
