@@ -175,7 +175,9 @@ export default function BookingPage() {
               <div className="flex justify-between">
                 <span className="text-gray-500 text-sm">When</span>
                 <span className="text-sm font-medium">
-                  {format(parseISO(confirmation.start_time), "EEE, MMM d · h:mm a")}
+                  {new Date(confirmation.start_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                  {' · '}
+                  {new Date(confirmation.start_time).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                 </span>
               </div>
             </div>
@@ -284,11 +286,11 @@ export default function BookingPage() {
 
             <div className="bg-blue-50 rounded-xl p-3 mb-6 text-sm text-blue-800">
               <span className="font-semibold">
-                {format(parseISO(selectedSlot.start), "EEEE, MMMM d")}
+                {new Date(selectedSlot.start).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
               </span>{" "}
               at{" "}
               <span className="font-semibold">
-                {format(parseISO(selectedSlot.start), "h:mm a")}
+                {new Date(selectedSlot.start).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
               </span>{" "}
               · {eventType.duration_minutes} min
             </div>

@@ -63,7 +63,10 @@ export async function createCalendarEvent(params: {
         dateTime: params.endTime,
         timeZone: params.timezone,
       },
-      attendees: [{ email: params.attendeeEmail }],
+      attendees: [
+        { email: params.calendarId }, // the team member
+        { email: params.attendeeEmail }, // the invitee
+      ],
       reminders: {
         useDefault: false,
         overrides: [
