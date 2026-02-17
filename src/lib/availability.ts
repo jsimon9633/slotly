@@ -1,5 +1,5 @@
-import { addMinutes, format, parseISO, startOfDay, addDays, isBefore, isAfter, setHours, setMinutes } from "date-fns";
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { addMinutes, parseISO, isBefore, isAfter, setHours, setMinutes } from "date-fns";
+import { fromZonedTime } from "date-fns-tz";
 import { getFreeBusy } from "./google-calendar";
 import { supabaseAdmin } from "./supabase";
 
@@ -76,8 +76,9 @@ export async function getAvailableSlots(
   // Get the day's availability rules
   const rules = await getAvailabilityRules(teamMemberId);
 
-  const date = parseISO(dateStr);
-  const dayOfWeek = date.getDay(); // 0=Sun
+  // Use noon UTC to safely determine day-of-week (avoids timezone boundary issues)
+  const dateAtNoon = new Date(dateStr + "T12:00:00Z");
+  const dayOfWeek = dateAtNoon.getUTCDay(); // 0=Sun
   const rule = rules.find((r) => r.day_of_week === dayOfWeek);
 
   // No rule or not available = no slots
@@ -87,16 +88,12 @@ export async function getAvailableSlots(
   const [startH, startM] = rule.start_time.split(":").map(Number);
   const [endH, endM] = rule.end_time.split(":").map(Number);
 
-  // Build working window in the user's timezone, then convert to UTC
-  const dayInTz = toZonedTime(date, timezone);
-  const workStart = fromZonedTime(
-    setMinutes(setHours(startOfDay(dayInTz), startH), startM),
-    timezone
-  );
-  const workEnd = fromZonedTime(
-    setMinutes(setHours(startOfDay(dayInTz), endH), endM),
-    timezone
-  );
+  // Build working window: construct local times directly from the date string,
+  // then convert from the user's timezone to UTC
+  const workStartLocal = new Date(`${dateStr}T${String(startH).padStart(2, "0")}:${String(startM).padStart(2, "0")}:00`);
+  const workEndLocal = new Date(`${dateStr}T${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}:00`);
+  const workStart = fromZonedTime(workStartLocal, timezone);
+  const workEnd = fromZonedTime(workEndLocal, timezone);
 
   // Don't show past slots
   const now = new Date();
