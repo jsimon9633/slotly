@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
+  // Only expose first names — never expose emails or calendar IDs
   const { data, error } = await supabaseAdmin
     .from("team_members")
     .select("id, name")
@@ -12,5 +13,11 @@ export async function GET() {
     return NextResponse.json([], { status: 500 });
   }
 
-  return NextResponse.json(data || []);
+  // Strip to first name only — no last names in public API
+  const safeData = (data || []).map((m) => ({
+    id: m.id,
+    name: m.name.split(" ")[0],
+  }));
+
+  return NextResponse.json(safeData);
 }

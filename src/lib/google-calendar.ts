@@ -85,10 +85,10 @@ export async function createCalendarEvent(params: {
       requestBody: eventBody,
       sendUpdates: "all",
     });
-    console.log("Calendar event created via impersonation");
+    // Event created via impersonation
     return res.data.id!;
   } catch (err: any) {
-    console.log("Impersonation failed:", err?.message || "unknown error");
+    // Impersonation not available, trying shared calendar
   }
 
   // Attempt 2: Insert directly into the shared calendar
@@ -99,10 +99,10 @@ export async function createCalendarEvent(params: {
       requestBody: eventBody,
       sendUpdates: "all",
     });
-    console.log("Calendar event created via shared calendar");
+    // Event created via shared calendar
     return res.data.id!;
   } catch (err: any) {
-    console.log("Shared calendar insert failed:", err?.message || "unknown error");
+    // Shared calendar not available, trying service account fallback
   }
 
   // Attempt 3: Create on service account's calendar, invite everyone
@@ -118,6 +118,6 @@ export async function createCalendarEvent(params: {
     },
     sendUpdates: "all",
   });
-  console.log("Calendar event created on service account calendar with invites");
+  // Event created on service account calendar with invites
   return res.data.id!;
 }

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getCombinedAvailability } from "@/lib/availability";
 
+// Basic input validation
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const TIMEZONE_REGEX = /^[A-Za-z_/]+$/;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date"); // YYYY-MM-DD
@@ -15,11 +19,27 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Look up event type to get duration
+  // Validate date format
+  if (!DATE_REGEX.test(date)) {
+    return NextResponse.json({ error: "Invalid date format" }, { status: 400 });
+  }
+
+  // Validate timezone (basic check — no special characters)
+  if (!TIMEZONE_REGEX.test(timezone)) {
+    return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
+  }
+
+  // Validate slug (alphanumeric + hyphens only)
+  if (!/^[a-z0-9-]+$/.test(eventTypeSlug)) {
+    return NextResponse.json({ error: "Invalid event type" }, { status: 400 });
+  }
+
+  // Look up event type — only fetch needed fields
   const { data: eventType, error: etError } = await supabaseAdmin
     .from("event_types")
-    .select("*")
+    .select("id, slug, title, duration_minutes, color")
     .eq("slug", eventTypeSlug)
+    .eq("is_active", true)
     .single();
 
   if (etError || !eventType) {
@@ -27,20 +47,21 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const slots = await getCombinedAvailability(
+    const rawSlots = await getCombinedAvailability(
       date,
       eventType.duration_minutes,
       timezone
     );
 
+    // Strip internal member IDs — clients don't need to know which team member is available
+    const slots = rawSlots.map(({ start, end }) => ({ start, end }));
+
     return NextResponse.json({
       date,
       timezone,
-      event_type: eventType,
       slots,
     });
-  } catch (err) {
-    console.error("Availability error:", err);
+  } catch {
     return NextResponse.json(
       { error: "Failed to fetch availability" },
       { status: 500 }

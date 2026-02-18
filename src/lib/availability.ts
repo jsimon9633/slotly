@@ -26,7 +26,7 @@ export async function getNextTeamMember(): Promise<{
 } | null> {
   const { data, error } = await supabaseAdmin
     .from("team_members")
-    .select("*")
+    .select("id, name, email, google_calendar_id")
     .eq("is_active", true)
     .order("last_booked_at", { ascending: true })
     .limit(1)
@@ -42,7 +42,7 @@ export async function getNextTeamMember(): Promise<{
 export async function getAllTeamMembers() {
   const { data } = await supabaseAdmin
     .from("team_members")
-    .select("*")
+    .select("id, name, google_calendar_id")
     .eq("is_active", true)
     .order("last_booked_at", { ascending: true });
 

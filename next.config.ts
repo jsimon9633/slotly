@@ -4,6 +4,17 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Global security headers for all routes
+        source: "/(.*)",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "on" },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+      {
         // Allow the booking pages to be embedded in iframes
         source: "/book/:path*",
         headers: [
@@ -17,6 +28,21 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "Access-Control-Allow-Origin", value: "*" },
           { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+      {
+        // Prevent the homepage / non-embed pages from being iframed by others
+        source: "/",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
+        // Prevent API routes from being cached by browsers/CDNs
+        source: "/api/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate" },
+          { key: "X-Frame-Options", value: "DENY" },
         ],
       },
     ];
