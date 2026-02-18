@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { sendBookingEmails } from "@/lib/email";
@@ -161,6 +162,9 @@ export async function POST(request: NextRequest) {
       console.error("Calendar event creation failed for booking");
     }
 
+    // Generate unique manage token for reschedule/cancel links
+    const manageToken = randomUUID();
+
     // Save booking to database
     const { data: booking, error: bookingError } = await supabaseAdmin
       .from("bookings")
@@ -175,8 +179,9 @@ export async function POST(request: NextRequest) {
         timezone,
         status: "confirmed",
         google_event_id: googleEventId,
+        manage_token: manageToken,
       })
-      .select("id, start_time, end_time")
+      .select("id, start_time, end_time, manage_token")
       .single();
 
     if (bookingError) {
@@ -204,6 +209,7 @@ export async function POST(request: NextRequest) {
         endTime: end.toISOString(),
         timezone,
         notes: cleanNotes,
+        manageToken,
       });
     } catch (emailErr) {
       console.error("Email send failed:", emailErr);
