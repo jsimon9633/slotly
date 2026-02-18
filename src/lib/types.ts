@@ -29,6 +29,7 @@ export interface Booking {
   timezone: string;
   status: "confirmed" | "cancelled" | "completed";
   google_event_id: string | null;
+  manage_token: string | null;
 }
 
 export interface TimeSlot {

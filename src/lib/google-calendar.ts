@@ -121,3 +121,132 @@ export async function createCalendarEvent(params: {
   // Event created on service account calendar with invites
   return res.data.id!;
 }
+
+/**
+ * Delete a calendar event (for cancellation).
+ * Tries same 3-tier fallback: impersonation → shared calendar → service account.
+ */
+export async function deleteCalendarEvent(
+  googleEventId: string,
+  calendarId: string
+): Promise<boolean> {
+  // Attempt 1: Impersonate the team member
+  try {
+    const calendar = getCalendarClient(calendarId);
+    await calendar.events.delete({
+      calendarId: "primary",
+      eventId: googleEventId,
+      sendUpdates: "all",
+    });
+    return true;
+  } catch {
+    // Impersonation not available
+  }
+
+  // Attempt 2: Shared calendar
+  try {
+    const calendar = getCalendarClient();
+    await calendar.events.delete({
+      calendarId: calendarId,
+      eventId: googleEventId,
+      sendUpdates: "all",
+    });
+    return true;
+  } catch {
+    // Shared calendar not available
+  }
+
+  // Attempt 3: Service account calendar
+  try {
+    const calendar = getCalendarClient();
+    await calendar.events.delete({
+      calendarId: "primary",
+      eventId: googleEventId,
+      sendUpdates: "all",
+    });
+    return true;
+  } catch {
+    console.error("Failed to delete calendar event", googleEventId);
+    return false;
+  }
+}
+
+/**
+ * Update a calendar event (for rescheduling).
+ * Tries same 3-tier fallback: impersonation → shared calendar → service account.
+ */
+export async function updateCalendarEvent(params: {
+  googleEventId: string;
+  calendarId: string;
+  summary: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  attendeeEmail: string;
+  timezone: string;
+}): Promise<string> {
+  const eventBody = {
+    summary: params.summary,
+    description: params.description,
+    start: {
+      dateTime: params.startTime,
+      timeZone: params.timezone,
+    },
+    end: {
+      dateTime: params.endTime,
+      timeZone: params.timezone,
+    },
+    attendees: [{ email: params.attendeeEmail }],
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: "email" as const, minutes: 60 },
+        { method: "popup" as const, minutes: 10 },
+      ],
+    },
+  };
+
+  // Attempt 1: Impersonate
+  try {
+    const calendar = getCalendarClient(params.calendarId);
+    const res = await calendar.events.update({
+      calendarId: "primary",
+      eventId: params.googleEventId,
+      requestBody: eventBody,
+      sendUpdates: "all",
+    });
+    return res.data.id!;
+  } catch {
+    // Impersonation not available
+  }
+
+  // Attempt 2: Shared calendar
+  try {
+    const calendar = getCalendarClient();
+    const res = await calendar.events.update({
+      calendarId: params.calendarId,
+      eventId: params.googleEventId,
+      requestBody: eventBody,
+      sendUpdates: "all",
+    });
+    return res.data.id!;
+  } catch {
+    // Shared calendar not available
+  }
+
+  // Attempt 3: Service account calendar
+  const calendar = getCalendarClient();
+  const res = await calendar.events.update({
+    calendarId: "primary",
+    eventId: params.googleEventId,
+    requestBody: {
+      ...eventBody,
+      attendees: [
+        { email: params.calendarId },
+        { email: params.attendeeEmail },
+      ],
+    },
+    sendUpdates: "all",
+  });
+  return res.data.id!;
+}
