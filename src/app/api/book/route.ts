@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createCalendarEvent } from "@/lib/google-calendar";
+import { sendBookingEmails } from "@/lib/email";
 import { addMinutes, parseISO } from "date-fns";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
@@ -188,6 +189,22 @@ export async function POST(request: NextRequest) {
       .from("team_members")
       .update({ last_booked_at: new Date().toISOString() })
       .eq("id", teamMember.id);
+
+    // Send confirmation + team member alert emails (non-blocking)
+    sendBookingEmails({
+      inviteeName: cleanName,
+      inviteeEmail: cleanEmail,
+      teamMemberName: teamMember.name,
+      teamMemberEmail: teamMember.email,
+      eventTitle: eventType.title,
+      durationMinutes: eventType.duration_minutes,
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      timezone,
+      notes: cleanNotes,
+    }).catch((err) => {
+      console.error("Email send failed:", err);
+    });
 
     // Return minimal confirmation — no internal IDs, no emails
     return NextResponse.json({
