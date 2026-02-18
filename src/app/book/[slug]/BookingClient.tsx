@@ -561,7 +561,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
         <div className="mt-4 sm:mt-6 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
           <span className="text-[10px] sm:text-xs text-gray-500">
             Powered by{" "}
-            <span className="font-semibold text-gray-500">{settings.company_name}</span>
+            <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
           </span>
         </div>
       </div>

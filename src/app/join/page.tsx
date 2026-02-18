@@ -285,14 +285,28 @@ function JoinPageInner() {
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
                   2
                 </div>
-                <p className="text-base text-gray-700 font-medium">
-                  Click your calendar → &quot;Share with specific people or groups&quot;
-                </p>
+                <div>
+                  <p className="text-base text-gray-700 font-medium">
+                    Find your calendar in the left sidebar
+                  </p>
+                  <p className="text-sm text-gray-400 mt-0.5">
+                    Under &quot;Settings for my calendars&quot;, click the calendar with your name to open its settings.
+                  </p>
+                </div>
               </div>
 
               <div className="flex gap-3">
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
                   3
+                </div>
+                <p className="text-base text-gray-700 font-medium">
+                  Scroll to &quot;Share with specific people or groups&quot;
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
+                  4
                 </div>
                 <div className="flex-1">
                   <p className="text-base text-gray-700 font-medium">Add this email with &quot;See all event details&quot;</p>
@@ -317,7 +331,7 @@ function JoinPageInner() {
 
               <div className="flex gap-3">
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
-                  4
+                  5
                 </div>
                 <p className="text-base text-gray-700 font-medium">Click &quot;Send&quot; to confirm</p>
               </div>
