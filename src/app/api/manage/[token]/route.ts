@@ -25,7 +25,7 @@ export async function GET(
       timezone,
       status,
       invitee_notes,
-      event_types ( id, slug, title, duration_minutes, color ),
+      event_types ( id, slug, title, duration_minutes, color, max_advance_days ),
       team_members ( id, name )
     `)
     .eq("manage_token", token)

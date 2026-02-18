@@ -276,7 +276,8 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
 
   // Memoize next 14 days so it doesn't recalculate every render
   const today = useMemo(() => startOfDay(new Date()), []);
-  const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(today, i)), [today]);
+  const maxDays = eventType.max_advance_days || 10;
+  const days = useMemo(() => Array.from({ length: maxDays }, (_, i) => addDays(today, i)), [today, maxDays]);
 
   // Date scroll navigation
   const [dateOffset, setDateOffset] = useState(0);

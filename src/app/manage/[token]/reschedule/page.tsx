@@ -26,7 +26,7 @@ interface BookingData {
   end_time: string;
   timezone: string;
   status: string;
-  event_type: { title: string; duration_minutes: number; color: string; slug: string };
+  event_type: { title: string; duration_minutes: number; color: string; slug: string; max_advance_days?: number };
   team_member_name: string;
 }
 
@@ -58,9 +58,10 @@ export default function ReschedulePage() {
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
     : "America/New_York";
 
-  // 14-day calendar
+  // Calendar days limited by max_advance_days setting
   const today = startOfDay(new Date());
-  const days = Array.from({ length: 14 }, (_, i) => addDays(today, i));
+  const maxDays = booking?.event_type?.max_advance_days || 10;
+  const days = Array.from({ length: maxDays }, (_, i) => addDays(today, i));
   const [dateOffset, setDateOffset] = useState(0);
   const visibleDays = 7;
 

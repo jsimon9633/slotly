@@ -29,6 +29,7 @@ interface EventTypeSettings {
   after_buffer_mins: number;
   min_notice_hours: number;
   max_daily_bookings: number | null;
+  max_advance_days: number;
 }
 
 // Track pending edits per event type
@@ -37,6 +38,7 @@ interface PendingEdit {
   after_buffer_mins?: string;
   min_notice_hours?: string;
   max_daily_bookings?: string;
+  max_advance_days?: string;
 }
 
 const ADMIN_TOKEN_KEY = "slotly_admin_token";
@@ -121,6 +123,7 @@ export default function AdminSettingsPage() {
       const origStr = et.max_daily_bookings === null ? "" : String(et.max_daily_bookings);
       if (edit.max_daily_bookings !== origStr) return true;
     }
+    if (edit.max_advance_days !== undefined && edit.max_advance_days !== String(et.max_advance_days)) return true;
     return false;
   };
 
@@ -139,6 +142,7 @@ export default function AdminSettingsPage() {
     if (edit.max_daily_bookings !== undefined) {
       body.max_daily_bookings = edit.max_daily_bookings === "" ? null : edit.max_daily_bookings;
     }
+    if (edit.max_advance_days !== undefined) body.max_advance_days = edit.max_advance_days;
 
     try {
       const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
@@ -363,7 +367,7 @@ export default function AdminSettingsPage() {
                 </div>
 
                 {/* Settings grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 px-5 sm:px-6 pb-5">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 px-5 sm:px-6 pb-5">
                   {/* Before Buffer */}
                   <div>
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -443,6 +447,26 @@ export default function AdminSettingsPage() {
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1">Bookings/day (blank = none)</p>
                   </div>
+
+                  {/* Max Advance Days */}
+                  <div>
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      <CalendarClock className="w-3.5 h-3.5" />
+                      Advance
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="2"
+                        max="30"
+                        value={getEditValue(et.id, "max_advance_days", et.max_advance_days)}
+                        onChange={(e) => setEditValue(et.id, "max_advance_days", e.target.value)}
+                        className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-lg focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all pr-12"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">days</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">How far out (2–30)</p>
+                  </div>
                 </div>
 
                 {/* Save button — only show when there are changes */}
@@ -499,6 +523,9 @@ export default function AdminSettingsPage() {
             </p>
             <p>
               <strong>Daily max:</strong> Caps bookings per event type per day. Leave empty for no limit. Set to 3 and the 4th person that day will see &quot;no more bookings available.&quot;
+            </p>
+            <p>
+              <strong>Advance:</strong> How many days into the future someone can book. Default is 10 days. Set to 5 and nobody can book more than 5 days out.
             </p>
           </div>
         </div>
