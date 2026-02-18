@@ -5,16 +5,41 @@ import { Clock, Zap, Users, Code2, Copy, Check } from "lucide-react";
 import Link from "next/link";
 import type { EventType } from "@/lib/types";
 
+// Map first names to emoji avatars
+const NAME_EMOJIS: Record<string, string> = {
+  alberto: "\u{1F468}\u{200D}\u{1F4BC}",
+  jason: "\u{1F468}\u{200D}\u{1F4BB}",
+  sarah: "\u{1F469}\u{200D}\u{1F4BC}",
+  jessica: "\u{1F469}\u{200D}\u{1F4BB}",
+  michael: "\u{1F9D1}\u{200D}\u{1F4BC}",
+  david: "\u{1F468}\u{200D}\u{1F3A8}",
+  emily: "\u{1F469}\u{200D}\u{1F3A8}",
+  chris: "\u{1F9D1}\u{200D}\u{1F4BB}",
+  alex: "\u{1F9D1}\u{200D}\u{1F52C}",
+  sam: "\u{1F9D1}\u{200D}\u{1F680}",
+};
+
+const FALLBACK_EMOJIS = ["\u{1F464}", "\u{1F9D1}", "\u{1F468}", "\u{1F469}", "\u{1F9D1}\u{200D}\u{1F4BC}"];
+
+function getEmojiForName(name: string, index: number): string {
+  const first = name.split(" ")[0].toLowerCase();
+  return NAME_EMOJIS[first] || FALLBACK_EMOJIS[index % FALLBACK_EMOJIS.length];
+}
+
 export default function Home() {
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/event-types")
-      .then((r) => r.json())
-      .then((data) => {
-        setEventTypes(data);
+    Promise.all([
+      fetch("/api/event-types").then((r) => r.json()),
+      fetch("/api/team").then((r) => r.json()),
+    ])
+      .then(([types, members]) => {
+        setEventTypes(types);
+        setTeamMembers(members);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -143,6 +168,20 @@ export default function Home() {
             <Users className="w-3.5 h-3.5" />
             <span>Round-robin scheduling across our team</span>
           </div>
+          {teamMembers.length > 0 && (
+            <div className="mt-2 flex items-center justify-center gap-2 animate-fade-in-up" style={{ animationDelay: "0.5s" }}>
+              {teamMembers.map((m, i) => (
+                <span
+                  key={m.id}
+                  className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full"
+                  title={m.name}
+                >
+                  <span className="text-sm">{getEmojiForName(m.name, i)}</span>
+                  {m.name.split(" ")[0]}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
