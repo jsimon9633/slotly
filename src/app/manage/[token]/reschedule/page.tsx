@@ -58,9 +58,9 @@ export default function ReschedulePage() {
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
     : "America/New_York";
 
-  // Calendar days limited by max_advance_days setting
+  // Calendar days — today + max_advance_days into the future
   const today = startOfDay(new Date());
-  const maxDays = booking?.event_type?.max_advance_days || 10;
+  const maxDays = (booking?.event_type?.max_advance_days || 10) + 1; // +1 to include today
   const days = Array.from({ length: maxDays }, (_, i) => addDays(today, i));
   const [dateOffset, setDateOffset] = useState(0);
   const visibleDays = 7;
