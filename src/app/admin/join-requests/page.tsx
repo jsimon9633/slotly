@@ -18,6 +18,7 @@ import {
   Lock,
   LinkIcon,
   Send,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -57,6 +58,7 @@ export default function AdminJoinRequestsPage() {
   const [generatingInvite, setGeneratingInvite] = useState(false);
   const [newInviteLink, setNewInviteLink] = useState<string | null>(null);
   const [tab, setTab] = useState<"requests" | "invites">("requests");
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Check saved token on mount
   useEffect(() => {
@@ -152,6 +154,27 @@ export default function AdminJoinRequestsPage() {
     } else {
       setCopiedInvite("new");
       setTimeout(() => setCopiedInvite(null), 2000);
+    }
+  };
+
+  const cancelInvite = async (id: string) => {
+    if (!confirm("Cancel this invite? The link will stop working immediately.")) return;
+    setCancellingId(id);
+    try {
+      const res = await fetch(`/api/admin/invite?token=${encodeURIComponent(token)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        fetchInvites();
+      } else {
+        setError("Failed to cancel invite.");
+      }
+    } catch {
+      setError("Failed to cancel invite.");
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -537,16 +560,31 @@ WHERE email = '${req.email}';`;
                           Expires {formatDate(inv.expires_at)}
                         </span>
                         {!inv.is_used && !expired && (
-                          <button
-                            onClick={() => copyInviteLink(fullLink, inv.id)}
-                            className="p-1.5 rounded hover:bg-gray-100 transition-colors"
-                          >
-                            {copiedInvite === inv.id ? (
-                              <Check className="w-4 h-4 text-emerald-500" />
-                            ) : (
-                              <Copy className="w-4 h-4 text-gray-400" />
-                            )}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => copyInviteLink(fullLink, inv.id)}
+                              className="p-1.5 rounded hover:bg-gray-100 transition-colors"
+                              title="Copy link"
+                            >
+                              {copiedInvite === inv.id ? (
+                                <Check className="w-4 h-4 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-gray-400" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => cancelInvite(inv.id)}
+                              disabled={cancellingId === inv.id}
+                              className="p-1.5 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                              title="Cancel invite"
+                            >
+                              {cancellingId === inv.id ? (
+                                <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                              )}
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>

@@ -152,9 +152,14 @@ function JoinPageInner() {
             <div className="w-14 h-14 bg-red-50 rounded-2xl grid place-items-center mx-auto mb-4">
               <ShieldX className="w-7 h-7 text-red-400" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Invalid invite</h1>
-            <p className="text-base text-gray-400 max-w-[340px] mx-auto">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              {invalidReason.includes("not found") ? "Invite no longer valid" : "Invalid invite"}
+            </h1>
+            <p className="text-base text-gray-400 max-w-[380px] mx-auto">
               {invalidReason}
+            </p>
+            <p className="text-sm text-gray-300 mt-4 max-w-[380px] mx-auto">
+              If you think this is a mistake, ask your admin for a new invite link.
             </p>
           </div>
         )}
