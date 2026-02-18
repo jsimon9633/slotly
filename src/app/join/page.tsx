@@ -18,7 +18,7 @@ import {
   ShieldX,
 } from "lucide-react";
 
-type Step = "validating" | "invalid" | "info" | "calendar" | "review" | "done";
+type Step = "validating" | "invalid" | "info" | "calendar" | "done";
 
 const SERVICE_ACCOUNT_EMAIL = "slotly-calendar@slotly-fast-scheduling.iam.gserviceaccount.com";
 
@@ -114,10 +114,9 @@ function JoinPageInner() {
     }
   };
 
-  const wizardSteps: { key: string; label: string }[] = [
+  const wizardSteps = [
     { key: "info", label: "Your info" },
-    { key: "calendar", label: "Share calendar" },
-    { key: "review", label: "Confirm" },
+    { key: "calendar", label: "Share & submit" },
   ];
 
   const currentIndex = wizardSteps.findIndex(
@@ -161,40 +160,38 @@ function JoinPageInner() {
         )}
 
         {/* Progress bar (only for wizard steps) */}
-        {["info", "calendar", "review"].includes(step) && (
-          <div className="flex items-center gap-1 mb-6 animate-fade-in">
+        {["info", "calendar"].includes(step) && (
+          <div className="flex items-center gap-2 mb-6 animate-fade-in">
             {wizardSteps.map((s, i) => (
-              <div key={s.key} className="flex items-center gap-1 flex-1">
-                <div className="flex-1 flex flex-col items-center gap-1">
-                  <div
-                    className={`h-1 w-full rounded-full transition-all duration-300 ${
-                      i <= currentIndex ? "bg-indigo-500" : "bg-gray-200"
-                    }`}
-                  />
-                  <span
-                    className={`text-xs font-medium transition-colors ${
-                      i <= currentIndex ? "text-indigo-600" : "text-gray-400"
-                    }`}
-                  >
-                    {s.label}
-                  </span>
-                </div>
+              <div key={s.key} className="flex-1 flex flex-col items-center gap-1.5">
+                <div
+                  className={`h-1.5 w-full rounded-full transition-all duration-300 ${
+                    i <= currentIndex ? "bg-indigo-500" : "bg-gray-200"
+                  }`}
+                />
+                <span
+                  className={`text-sm font-medium transition-colors ${
+                    i <= currentIndex ? "text-indigo-600" : "text-gray-400"
+                  }`}
+                >
+                  {s.label}
+                </span>
               </div>
             ))}
           </div>
         )}
 
-        {/* Step 1: Basic Info */}
+        {/* Step 1: Your Info */}
         {step === "info" && (
           <div className="animate-fade-in-up">
             <h1 className="text-2xl font-bold text-gray-900 mb-1">Welcome to Slotly</h1>
             <p className="text-base text-gray-400 mb-6">
-              Let&apos;s get you set up for round-robin scheduling. Takes about 2 minutes.
+              Let&apos;s get you set up for round-robin scheduling.
             </p>
 
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <label className="text-sm font-semibold text-gray-500 mb-1.5 flex items-center gap-1.5">
+                <label className="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
                   <User className="w-4 h-4" />
                   Full name
                 </label>
@@ -208,7 +205,7 @@ function JoinPageInner() {
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-500 mb-1.5 flex items-center gap-1.5">
+                <label className="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
                   <Mail className="w-4 h-4" />
                   Google Workspace email
                 </label>
@@ -219,8 +216,8 @@ function JoinPageInner() {
                   placeholder="you@yourcompany.com"
                   className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
                 />
-                <p className="text-sm text-gray-400 mt-1">
-                  Must be a Google Workspace account so we can check your calendar availability.
+                <p className="text-sm text-gray-400 mt-1.5">
+                  Must be a Google Workspace account so we can check your availability.
                 </p>
               </div>
             </div>
@@ -228,7 +225,7 @@ function JoinPageInner() {
             <button
               onClick={() => setStep("calendar")}
               disabled={!canProceedInfo}
-              className={`mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold transition-all ${
+              className={`mt-8 w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-base font-semibold transition-all ${
                 canProceedInfo
                   ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
                   : "bg-gray-100 text-gray-300 cursor-not-allowed"
@@ -240,7 +237,7 @@ function JoinPageInner() {
           </div>
         )}
 
-        {/* Step 2: Share Calendar */}
+        {/* Step 2: Share Calendar & Submit */}
         {step === "calendar" && (
           <div className="animate-fade-in-up">
             <button
@@ -255,25 +252,25 @@ function JoinPageInner() {
               <Calendar className="w-5 h-5 text-indigo-500" />
               <h1 className="text-2xl font-bold text-gray-900">Share your calendar</h1>
             </div>
-            <p className="text-base text-gray-400 mb-6">
+            <p className="text-base text-gray-400 mb-5">
               Share your Google Calendar with our service account so Slotly can check when you&apos;re free.
             </p>
 
-            {/* Instructions */}
+            {/* Instructions card */}
             <div className="bg-white rounded-xl border-[1.5px] border-gray-100 p-5 space-y-4">
               <div className="flex gap-3">
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
                   1
                 </div>
                 <div>
-                  <p className="text-base text-gray-700 font-medium">Open Google Calendar</p>
+                  <p className="text-base text-gray-700 font-medium">Open Google Calendar settings</p>
                   <a
                     href="https://calendar.google.com/calendar/r/settings"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-indigo-500 hover:text-indigo-700 flex items-center gap-1 mt-0.5"
                   >
-                    calendar.google.com/calendar/r/settings
+                    Open settings
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
@@ -283,18 +280,16 @@ function JoinPageInner() {
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
                   2
                 </div>
-                <div>
-                  <p className="text-base text-gray-700 font-medium">
-                    Click your calendar → &quot;Share with specific people or groups&quot;
-                  </p>
-                </div>
+                <p className="text-base text-gray-700 font-medium">
+                  Click your calendar → &quot;Share with specific people or groups&quot;
+                </p>
               </div>
 
               <div className="flex gap-3">
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
                   3
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="text-base text-gray-700 font-medium">Add this email with &quot;See all event details&quot;</p>
                   <div className="mt-2 flex items-center gap-2">
                     <code className="text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-600 break-all flex-1">
@@ -319,9 +314,7 @@ function JoinPageInner() {
                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
                   4
                 </div>
-                <div>
-                  <p className="text-base text-gray-700 font-medium">Click &quot;Send&quot; to confirm</p>
-                </div>
+                <p className="text-base text-gray-700 font-medium">Click &quot;Send&quot; to confirm</p>
               </div>
             </div>
 
@@ -343,62 +336,21 @@ function JoinPageInner() {
               </span>
             </label>
 
-            <button
-              onClick={() => setStep("review")}
-              disabled={!calendarShared}
-              className={`mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold transition-all ${
-                calendarShared
-                  ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
-                  : "bg-gray-100 text-gray-300 cursor-not-allowed"
-              }`}
-            >
-              Next
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Step 3: Review & Submit */}
-        {step === "review" && (
-          <div className="animate-fade-in-up">
-            <button
-              onClick={() => setStep("calendar")}
-              className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1 mb-4 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </button>
-
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">Review & submit</h1>
-            <p className="text-base text-gray-400 mb-6">
-              Confirm your details. An admin will review your request and add you to the round-robin.
-            </p>
-
-            <div className="bg-white rounded-xl border-[1.5px] border-gray-100 p-5 space-y-3">
+            {/* Summary */}
+            <div className="mt-5 bg-gray-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400 font-medium">Name</span>
+                <span className="text-sm text-gray-400">Name</span>
                 <span className="text-base text-gray-900 font-medium">{name}</span>
               </div>
-              <div className="border-t border-gray-100" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400 font-medium">Email</span>
+                <span className="text-sm text-gray-400">Email</span>
                 <span className="text-base text-gray-900 font-medium">{email}</span>
-              </div>
-              <div className="border-t border-gray-100" />
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400 font-medium">Calendar shared</span>
-                <span className="text-base text-emerald-600 font-medium flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Yes
-                </span>
               </div>
             </div>
 
             <div className="mt-3 bg-indigo-50 rounded-xl p-4">
               <p className="text-sm text-indigo-700">
-                <strong>What happens next:</strong> Your admin will be notified and can approve your
-                request. Once approved, you&apos;ll be live in the round-robin — Slotly uses your
-                live Google Calendar to determine when you&apos;re available, so no extra setup needed.
+                <strong>What happens next:</strong> Your admin will review your request and add you to the round-robin. Slotly uses your live Google Calendar — no extra setup needed.
               </p>
             </div>
 
@@ -410,8 +362,12 @@ function JoinPageInner() {
 
             <button
               onClick={handleSubmit}
-              disabled={submitting}
-              className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-base font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-all disabled:opacity-60"
+              disabled={!calendarShared || submitting}
+              className={`mt-5 w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-base font-semibold transition-all ${
+                calendarShared && !submitting
+                  ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                  : "bg-gray-100 text-gray-300 cursor-not-allowed"
+              }`}
             >
               {submitting ? (
                 <>
