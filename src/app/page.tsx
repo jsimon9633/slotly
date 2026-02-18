@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Zap, Code2, Clock, ArrowLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import type { EventType } from "@/lib/types";
+import type { EventType, SiteSettings } from "@/lib/types";
 
 const NAME_EMOJIS: Record<string, string> = {
   alberto: "\u{1F468}\u{200D}\u{1F4BC}",
@@ -30,15 +30,23 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [mobileStep, setMobileStep] = useState<"pick" | "book">("pick");
+  const [settings, setSettings] = useState<SiteSettings>({
+    company_name: "Slotly",
+    logo_url: null,
+    primary_color: "#4f46e5",
+    accent_color: "#3b82f6",
+  });
 
   useEffect(() => {
     Promise.all([
       fetch("/api/event-types").then((r) => r.json()),
       fetch("/api/team").then((r) => r.json()),
+      fetch("/api/settings").then((r) => r.json()).catch(() => null),
     ])
-      .then(([types, members]) => {
+      .then(([types, members, siteSettings]) => {
         setEventTypes(types);
         setTeamMembers(members);
+        if (siteSettings) setSettings(siteSettings);
         if (types.length > 0) setActiveSlug(types[0].slug);
         setLoading(false);
       })
@@ -57,10 +65,22 @@ export default function Home() {
       {/* ── Header ── */}
       <header className="max-w-[880px] mx-auto flex items-center justify-between px-4 sm:px-5 pt-4">
         <Link href="/" className="flex items-center gap-2 animate-fade-in-up hover:opacity-80 transition-opacity">
-          <div className="w-7 h-7 bg-indigo-600 rounded-lg grid place-items-center">
-            <Zap className="w-3.5 h-3.5 text-white" />
-          </div>
-          <span className="text-lg font-bold tracking-tight text-gray-900">Slotly</span>
+          {settings.logo_url ? (
+            <div className="w-7 h-7 rounded-lg overflow-hidden bg-white border border-gray-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={settings.logo_url} alt="" className="w-full h-full object-contain" />
+            </div>
+          ) : (
+            <div
+              className="w-7 h-7 rounded-lg grid place-items-center"
+              style={{ backgroundColor: settings.primary_color }}
+            >
+              <Zap className="w-3.5 h-3.5 text-white" />
+            </div>
+          )}
+          <span className="text-lg font-bold tracking-tight text-gray-900">
+            {settings.company_name}
+          </span>
         </Link>
         <Link
           href="/embed"
@@ -228,7 +248,8 @@ export default function Home() {
       </main>
 
       {/* ── Footer ── */}
-      <footer className="max-w-[880px] mx-auto flex items-center justify-center gap-2.5 px-4 py-3 sm:py-4 text-[11px] text-gray-400 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+      <footer className="max-w-[880px] mx-auto flex flex-col items-center gap-2 px-4 py-3 sm:py-4 text-[11px] text-gray-400 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+        <div className="flex items-center gap-2.5">
         <span>Round-robin across</span>
         {teamMembers.map((m, i) => (
           <span
@@ -239,6 +260,10 @@ export default function Home() {
             {m.name}
           </span>
         ))}
+        </div>
+        <span>
+          Powered by <span className="font-semibold text-gray-500">{settings.company_name}</span>
+        </span>
       </footer>
     </div>
   );

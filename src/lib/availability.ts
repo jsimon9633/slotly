@@ -1,4 +1,4 @@
-import { addMinutes, parseISO, isBefore, isAfter, setHours, setMinutes } from "date-fns";
+import { addMinutes, parseISO, isBefore, isAfter, setHours, setMinutes, startOfDay, endOfDay } from "date-fns";
 import { fromZonedTime } from "date-fns-tz";
 import { getFreeBusy } from "./google-calendar";
 import { supabaseAdmin } from "./supabase";
@@ -13,6 +13,13 @@ interface AvailabilityRule {
   start_time: string; // "09:00"
   end_time: string;   // "17:00"
   is_available: boolean;
+}
+
+/** Scheduling constraints from event_types */
+export interface SchedulingConstraints {
+  beforeBufferMins: number;
+  afterBufferMins: number;
+  minNoticeHours: number;
 }
 
 /**
@@ -64,14 +71,15 @@ async function getAvailabilityRules(teamMemberId: string): Promise<AvailabilityR
 
 /**
  * Generate available time slots for a date range
- * Checks availability rules AND Google Calendar free/busy
+ * Checks availability rules, Google Calendar free/busy, buffers, and minimum notice
  */
 export async function getAvailableSlots(
   teamMemberId: string,
   calendarId: string,
   dateStr: string, // YYYY-MM-DD
   durationMinutes: number,
-  timezone: string
+  timezone: string,
+  constraints: SchedulingConstraints = { beforeBufferMins: 0, afterBufferMins: 0, minNoticeHours: 0 }
 ): Promise<TimeSlot[]> {
   // Get the day's availability rules
   const rules = await getAvailabilityRules(teamMemberId);
@@ -95,9 +103,13 @@ export async function getAvailableSlots(
   const workStart = fromZonedTime(workStartLocal, timezone);
   const workEnd = fromZonedTime(workEndLocal, timezone);
 
-  // Don't show past slots
+  // Minimum notice: earliest allowed booking time
   const now = new Date();
-  const effectiveStart = isAfter(now, workStart) ? now : workStart;
+  const earliestAllowed = constraints.minNoticeHours > 0
+    ? addMinutes(now, constraints.minNoticeHours * 60)
+    : now;
+
+  const effectiveStart = isAfter(earliestAllowed, workStart) ? earliestAllowed : workStart;
 
   // Round up to next slot boundary (e.g., next 15-min mark)
   const slotBoundary = 15; // minutes
@@ -121,11 +133,15 @@ export async function getAvailableSlots(
          addMinutes(cursor, durationMinutes).getTime() === workEnd.getTime()) {
     const slotEnd = addMinutes(cursor, durationMinutes);
 
-    // Check if slot overlaps with any busy period
+    // Buffer zones: the "real" blocked window extends before and after the slot
+    const bufferedStart = addMinutes(cursor, -(constraints.beforeBufferMins));
+    const bufferedEnd = addMinutes(slotEnd, constraints.afterBufferMins);
+
+    // Check if the buffered window overlaps with any busy period
     const isConflict = busySlots.some((busy) => {
       const busyStart = parseISO(busy.start);
       const busyEnd = parseISO(busy.end);
-      return isBefore(cursor, busyEnd) && isAfter(slotEnd, busyStart);
+      return isBefore(bufferedStart, busyEnd) && isAfter(bufferedEnd, busyStart);
     });
 
     if (!isConflict && isAfter(cursor, now)) {
@@ -148,7 +164,8 @@ export async function getAvailableSlots(
 export async function getCombinedAvailability(
   dateStr: string,
   durationMinutes: number,
-  timezone: string
+  timezone: string,
+  constraints: SchedulingConstraints = { beforeBufferMins: 0, afterBufferMins: 0, minNoticeHours: 0 }
 ): Promise<(TimeSlot & { available_member_ids: string[] })[]> {
   const members = await getAllTeamMembers();
   if (members.length === 0) return [];
@@ -161,7 +178,8 @@ export async function getCombinedAvailability(
         member.google_calendar_id,
         dateStr,
         durationMinutes,
-        timezone
+        timezone,
+        constraints
       );
       return { memberId: member.id, slots };
     })

@@ -15,6 +15,10 @@ export interface EventType {
   duration_minutes: number;
   color: string;
   is_active: boolean;
+  before_buffer_mins: number;
+  after_buffer_mins: number;
+  min_notice_hours: number;
+  max_daily_bookings: number | null;
 }
 
 export interface Booking {
@@ -30,6 +34,14 @@ export interface Booking {
   status: "confirmed" | "cancelled" | "completed";
   google_event_id: string | null;
   manage_token: string | null;
+}
+
+export interface SiteSettings {
+  id?: string;
+  company_name: string;
+  logo_url: string | null;
+  primary_color: string;  // hex color like "#4f46e5"
+  accent_color: string;   // secondary/accent like "#3b82f6"
 }
 
 export interface TimeSlot {
