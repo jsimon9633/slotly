@@ -47,6 +47,13 @@ export async function getFreeBusy(
  * falls back to direct calendar insert (shared calendar),
  * falls back to service account calendar with attendee invites.
  */
+export interface CalendarEventResult {
+  eventId: string;
+  meetLink?: string;
+  meetPhone?: string; // dial-in number
+  meetPin?: string;   // PIN for phone dial-in
+}
+
 export async function createCalendarEvent(params: {
   calendarId: string;
   summary: string;
@@ -55,7 +62,7 @@ export async function createCalendarEvent(params: {
   endTime: string;
   attendeeEmail: string;
   timezone: string;
-}): Promise<string> {
+}): Promise<CalendarEventResult> {
   const eventBody = {
     summary: params.summary,
     description: params.description,
@@ -68,6 +75,12 @@ export async function createCalendarEvent(params: {
       timeZone: params.timezone,
     },
     attendees: [{ email: params.attendeeEmail }],
+    conferenceData: {
+      createRequest: {
+        requestId: `slotly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    },
     reminders: {
       useDefault: false,
       overrides: [
@@ -77,6 +90,21 @@ export async function createCalendarEvent(params: {
     },
   };
 
+  function extractMeetDetails(data: any): CalendarEventResult {
+    const result: CalendarEventResult = { eventId: data.id! };
+    const ep = data.conferenceData?.entryPoints;
+    if (ep) {
+      const video = ep.find((e: any) => e.entryPointType === "video");
+      const phone = ep.find((e: any) => e.entryPointType === "phone");
+      if (video) result.meetLink = video.uri;
+      if (phone) {
+        result.meetPhone = phone.label || phone.uri?.replace("tel:", "");
+        result.meetPin = phone.pin;
+      }
+    }
+    return result;
+  }
+
   // Attempt 1: Impersonate the team member (works with Workspace + domain-wide delegation)
   try {
     const calendar = getCalendarClient(params.calendarId);
@@ -84,9 +112,9 @@ export async function createCalendarEvent(params: {
       calendarId: "primary",
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
-    // Event created via impersonation
-    return res.data.id!;
+    return extractMeetDetails(res.data);
   } catch (err: any) {
     // Impersonation not available, trying shared calendar
   }
@@ -98,9 +126,9 @@ export async function createCalendarEvent(params: {
       calendarId: params.calendarId,
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
-    // Event created via shared calendar
-    return res.data.id!;
+    return extractMeetDetails(res.data);
   } catch (err: any) {
     // Shared calendar not available, trying service account fallback
   }
@@ -117,9 +145,9 @@ export async function createCalendarEvent(params: {
       ],
     },
     sendUpdates: "all",
+    conferenceDataVersion: 1,
   });
-  // Event created on service account calendar with invites
-  return res.data.id!;
+  return extractMeetDetails(res.data);
 }
 
 /**
@@ -197,6 +225,12 @@ export async function updateCalendarEvent(params: {
       timeZone: params.timezone,
     },
     attendees: [{ email: params.attendeeEmail }],
+    conferenceData: {
+      createRequest: {
+        requestId: `slotly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    },
     reminders: {
       useDefault: false,
       overrides: [
@@ -214,6 +248,7 @@ export async function updateCalendarEvent(params: {
       eventId: params.googleEventId,
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
     return res.data.id!;
   } catch {
@@ -228,6 +263,7 @@ export async function updateCalendarEvent(params: {
       eventId: params.googleEventId,
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
     return res.data.id!;
   } catch {
@@ -247,6 +283,7 @@ export async function updateCalendarEvent(params: {
       ],
     },
     sendUpdates: "all",
+    conferenceDataVersion: 1,
   });
   return res.data.id!;
 }
