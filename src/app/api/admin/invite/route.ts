@@ -51,6 +51,35 @@ export async function POST(req: NextRequest) {
   });
 }
 
+// Cancel (delete) an invite — removes from DB so the link is no longer valid
+export async function DELETE(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  let body: { id?: string } = {};
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Missing invite ID." }, { status: 400 });
+  }
+
+  if (!body.id) {
+    return NextResponse.json({ error: "Missing invite ID." }, { status: 400 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("invite_tokens")
+    .delete()
+    .eq("id", body.id);
+
+  if (error) {
+    return NextResponse.json({ error: "Failed to cancel invite." }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}
+
 // List active (unused, unexpired) invites
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {

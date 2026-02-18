@@ -33,12 +33,12 @@ export default function EmbedPage() {
     <div className="min-h-screen bg-[#fafbfc]">
       {/* Header */}
       <header className="max-w-[680px] mx-auto flex items-center justify-between px-4 sm:px-5 pt-4">
-        <div className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <div className="w-7 h-7 bg-indigo-600 rounded-lg grid place-items-center">
             <Zap className="w-3.5 h-3.5 text-white" />
           </div>
           <span className="text-lg font-bold tracking-tight text-gray-900">Slotly</span>
-        </div>
+        </Link>
         <Link
           href="/"
           className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all"

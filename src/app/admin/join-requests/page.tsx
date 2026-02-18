@@ -18,6 +18,7 @@ import {
   Lock,
   LinkIcon,
   Send,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -57,6 +58,8 @@ export default function AdminJoinRequestsPage() {
   const [generatingInvite, setGeneratingInvite] = useState(false);
   const [newInviteLink, setNewInviteLink] = useState<string | null>(null);
   const [tab, setTab] = useState<"requests" | "invites">("requests");
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [showUsedInvites, setShowUsedInvites] = useState(false);
 
   // Check saved token on mount
   useEffect(() => {
@@ -152,6 +155,27 @@ export default function AdminJoinRequestsPage() {
     } else {
       setCopiedInvite("new");
       setTimeout(() => setCopiedInvite(null), 2000);
+    }
+  };
+
+  const cancelInvite = async (id: string) => {
+    if (!confirm("Cancel this invite? The link will stop working immediately.")) return;
+    setCancellingId(id);
+    try {
+      const res = await fetch(`/api/admin/invite?token=${encodeURIComponent(token)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        fetchInvites();
+      } else {
+        setError("Failed to cancel invite.");
+      }
+    } catch {
+      setError("Failed to cancel invite.");
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -252,53 +276,53 @@ WHERE email = '${req.email}';`;
   return (
     <div className="min-h-screen bg-[#fafbfc]">
       {/* Header — logo not clickable in admin */}
-      <header className="max-w-[720px] mx-auto flex items-center justify-between px-5 sm:px-6 pt-5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg grid place-items-center">
-            <Zap className="w-4 h-4 text-white" />
+      <header className="max-w-[720px] sm:max-w-[860px] mx-auto flex items-center justify-between px-5 sm:px-8 pt-5 sm:pt-7">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-600 rounded-lg grid place-items-center">
+            <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
-          <span className="text-xl font-bold tracking-tight text-gray-900">Slotly</span>
-          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold ml-1">
+          <span className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">Slotly</span>
+          <span className="text-xs sm:text-sm bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold ml-1">
             Admin
           </span>
         </div>
         <Link
           href="/"
-          className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all"
+          className="text-sm sm:text-base text-gray-400 hover:text-gray-600 flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Back
         </Link>
       </header>
 
-      <main className="max-w-[720px] mx-auto px-5 sm:px-6 pt-7 sm:pt-9 pb-14">
+      <main className="max-w-[720px] sm:max-w-[860px] mx-auto px-5 sm:px-8 pt-7 sm:pt-9 pb-14">
         {/* Title */}
-        <div className="mb-6 animate-fade-in-up">
+        <div className="mb-6 sm:mb-8 animate-fade-in-up">
           <div className="flex items-center gap-2.5 mb-1">
-            <Shield className="w-5 h-5 text-indigo-500" />
-            <h1 className="text-xl font-bold text-gray-900">Team Management</h1>
+            <Shield className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500" />
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Team Management</h1>
           </div>
-          <p className="text-base text-gray-400">
+          <p className="text-base sm:text-lg text-gray-400">
             Generate invite links and manage join requests.
           </p>
         </div>
 
         {/* Generate invite card */}
-        <div className="bg-white rounded-xl border-[1.5px] border-indigo-100 p-5 mb-6 animate-fade-in-up">
+        <div className="bg-white rounded-xl border-[1.5px] border-indigo-100 p-5 sm:p-6 mb-6 sm:mb-8 animate-fade-in-up">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
-              <Send className="w-5 h-5 text-indigo-500" />
-              <h2 className="text-base font-semibold text-gray-900">Invite a new team member</h2>
+              <Send className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500" />
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Invite a new team member</h2>
             </div>
             <button
               onClick={generateInvite}
               disabled={generatingInvite}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg text-sm sm:text-base font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
             >
               {generatingInvite ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
               ) : (
-                <LinkIcon className="w-4 h-4" />
+                <LinkIcon className="w-4 h-4 sm:w-5 sm:h-5" />
               )}
               Generate link
             </button>
@@ -306,21 +330,21 @@ WHERE email = '${req.email}';`;
 
           {newInviteLink && (
             <div className="mt-3 animate-fade-in">
-              <p className="text-sm text-gray-400 mb-2">
+              <p className="text-sm sm:text-base text-gray-400 mb-2">
                 Share this link (expires in 7 days):
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-indigo-600 break-all">
+                <code className="flex-1 text-sm sm:text-base bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 sm:px-4 sm:py-3 text-indigo-600 break-all">
                   {newInviteLink}
                 </code>
                 <button
                   onClick={() => copyInviteLink(newInviteLink)}
-                  className="flex-shrink-0 p-2.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex-shrink-0 p-2.5 sm:p-3 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   {copiedInvite === "new" ? (
-                    <Check className="w-4 h-4 text-emerald-500" />
+                    <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
                   ) : (
-                    <Copy className="w-4 h-4 text-gray-400" />
+                    <Copy className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                   )}
                 </button>
               </div>
@@ -329,10 +353,10 @@ WHERE email = '${req.email}';`;
         </div>
 
         {/* Tab toggle: Requests vs Invites */}
-        <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-lg p-1 animate-fade-in">
+        <div className="flex items-center gap-1 mb-5 sm:mb-6 bg-gray-100 rounded-lg p-1 sm:p-1.5 animate-fade-in">
           <button
             onClick={() => setTab("requests")}
-            className={`flex-1 text-sm font-semibold py-2 rounded-md transition-all ${
+            className={`flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md transition-all ${
               tab === "requests" ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"
             }`}
           >
@@ -340,7 +364,7 @@ WHERE email = '${req.email}';`;
           </button>
           <button
             onClick={() => setTab("invites")}
-            className={`flex-1 text-sm font-semibold py-2 rounded-md transition-all ${
+            className={`flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md transition-all ${
               tab === "invites" ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"
             }`}
           >
@@ -352,12 +376,12 @@ WHERE email = '${req.email}';`;
         {tab === "requests" && (
           <>
             {/* Filter tabs + refresh */}
-            <div className="flex items-center gap-2 mb-5 animate-fade-in">
+            <div className="flex items-center gap-2 mb-5 sm:mb-6 animate-fade-in">
               {(["pending", "approved", "rejected"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
-                  className={`text-sm font-semibold px-4 py-2 rounded-lg transition-all capitalize ${
+                  className={`text-sm sm:text-base font-semibold px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg transition-all capitalize ${
                     filter === f
                       ? "bg-indigo-50 text-indigo-600 border border-indigo-200"
                       : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
@@ -368,10 +392,10 @@ WHERE email = '${req.email}';`;
               ))}
               <button
                 onClick={fetchRequests}
-                className="ml-auto p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+                className="ml-auto p-2 sm:p-2.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
                 title="Refresh"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${loading ? "animate-spin" : ""}`} />
               </button>
             </div>
 
@@ -391,37 +415,37 @@ WHERE email = '${req.email}';`;
                 requests.map((req, i) => (
                   <div
                     key={req.id}
-                    className={`bg-white rounded-xl border-[1.5px] border-gray-100 p-5 animate-fade-in-up stagger-${i + 1}`}
+                    className={`bg-white rounded-xl border-[1.5px] border-gray-100 p-5 sm:p-6 animate-fade-in-up stagger-${i + 1}`}
                   >
                     {/* Person info */}
                     <div className="flex items-start justify-between mb-4">
                       <div>
-                        <div className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                          <User className="w-4 h-4 text-gray-400" />
+                        <div className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-2">
+                          <User className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                           {req.name}
                         </div>
-                        <div className="text-sm text-gray-400 flex items-center gap-2 mt-1">
-                          <Mail className="w-3.5 h-3.5" />
+                        <div className="text-sm sm:text-base text-gray-400 flex items-center gap-2 mt-1">
+                          <Mail className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           {req.email}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="w-3.5 h-3.5 text-gray-300" />
+                      <div className="flex items-center gap-2 text-sm sm:text-base">
+                        <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-300" />
                         <span className="text-gray-400">{formatDate(req.created_at)}</span>
                       </div>
                     </div>
 
                     {/* Calendar status */}
-                    <div className="flex items-center gap-2 text-sm mb-4">
-                      <Calendar className="w-4 h-4 text-gray-400" />
+                    <div className="flex items-center gap-2 text-sm sm:text-base mb-4">
+                      <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                       <span className="text-gray-500">Calendar shared:</span>
                       {req.calendar_shared ? (
                         <span className="text-emerald-600 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-4 h-4" /> Yes
+                          <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" /> Yes
                         </span>
                       ) : (
                         <span className="text-red-500 font-medium flex items-center gap-1">
-                          <XCircle className="w-4 h-4" /> No
+                          <XCircle className="w-4 h-4 sm:w-5 sm:h-5" /> No
                         </span>
                       )}
                     </div>
@@ -429,24 +453,24 @@ WHERE email = '${req.email}';`;
                     {/* SQL block (only for pending) */}
                     {filter === "pending" && (
                       <>
-                        <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
+                        <div className="text-xs sm:text-sm uppercase tracking-wide text-gray-400 font-semibold mb-2">
                           SQL to run after approving
                         </div>
-                        <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs leading-relaxed text-gray-300 overflow-x-auto whitespace-pre max-h-[200px]">
+                        <div className="bg-gray-900 rounded-lg p-4 sm:p-5 font-mono text-xs sm:text-sm leading-relaxed text-gray-300 overflow-x-auto whitespace-pre max-h-[200px] sm:max-h-[260px]">
                           {generateSQL(req)}
                         </div>
                         <button
                           onClick={() => copySQL(req)}
-                          className="mt-3 text-sm font-medium flex items-center gap-1.5 text-indigo-500 hover:text-indigo-700 transition-colors"
+                          className="mt-3 text-sm sm:text-base font-medium flex items-center gap-1.5 text-indigo-500 hover:text-indigo-700 transition-colors"
                         >
                           {copiedId === req.id ? (
                             <>
-                              <Check className="w-4 h-4 text-emerald-500" />
+                              <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
                               <span className="text-emerald-500">Copied!</span>
                             </>
                           ) : (
                             <>
-                              <Copy className="w-4 h-4" />
+                              <Copy className="w-4 h-4 sm:w-5 sm:h-5" />
                               Copy SQL
                             </>
                           )}
@@ -460,24 +484,24 @@ WHERE email = '${req.email}';`;
                         <button
                           onClick={() => updateStatus(req.id, "approved")}
                           disabled={updatingId === req.id}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-all disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 sm:px-5 sm:py-3 rounded-xl text-sm sm:text-base font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-all disabled:opacity-50"
                         >
                           {updatingId === req.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                           ) : (
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
                           )}
                           Approve
                         </button>
                         <button
                           onClick={() => updateStatus(req.id, "rejected")}
                           disabled={updatingId === req.id}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 sm:px-5 sm:py-3 rounded-xl text-sm sm:text-base font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all disabled:opacity-50"
                         >
                           {updatingId === req.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                           ) : (
-                            <XCircle className="w-4 h-4" />
+                            <XCircle className="w-4 h-4 sm:w-5 sm:h-5" />
                           )}
                           Reject
                         </button>
@@ -493,18 +517,34 @@ WHERE email = '${req.email}';`;
         {/* INVITES TAB */}
         {tab === "invites" && (
           <div className="space-y-3 animate-fade-in">
-            {invites.length === 0 ? (
-              <div className="text-center py-14 text-gray-300 text-base">
+            {/* Show used toggle */}
+            {invites.some((i) => i.is_used) && (
+              <div className="flex items-center justify-end mb-1">
+                <button
+                  onClick={() => setShowUsedInvites(!showUsedInvites)}
+                  className={`text-sm font-medium px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all ${
+                    showUsedInvites
+                      ? "bg-indigo-50 text-indigo-600 border border-indigo-200"
+                      : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {showUsedInvites ? "Hide" : "Show"} used invites
+                  {!showUsedInvites && ` (${invites.filter((i) => i.is_used).length})`}
+                </button>
+              </div>
+            )}
+            {invites.filter((i) => showUsedInvites || !i.is_used).length === 0 ? (
+              <div className="text-center py-14 text-gray-300 text-base sm:text-lg">
                 No invites generated yet.
               </div>
             ) : (
-              invites.map((inv) => {
+              invites.filter((i) => showUsedInvites || !i.is_used).map((inv) => {
                 const expired = isExpired(inv.expires_at);
                 const fullLink = `${typeof window !== "undefined" ? window.location.origin : ""}/join?invite=${inv.token}`;
                 return (
                   <div
                     key={inv.id}
-                    className={`bg-white rounded-xl border-[1.5px] p-4 ${
+                    className={`bg-white rounded-xl border-[1.5px] p-4 sm:p-5 ${
                       inv.is_used
                         ? "border-emerald-100"
                         : expired
@@ -513,40 +553,55 @@ WHERE email = '${req.email}';`;
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <LinkIcon className="w-4 h-4 text-gray-400" />
-                        <code className="text-sm text-gray-500">
+                      <div className="flex items-center gap-2.5 sm:gap-3">
+                        <LinkIcon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                        <code className="text-sm sm:text-base text-gray-500">
                           ...{inv.token.slice(-12)}
                         </code>
                         {inv.is_used ? (
-                          <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-semibold">
+                          <span className="text-xs sm:text-sm bg-emerald-50 text-emerald-600 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full font-semibold">
                             Used by {inv.used_by_email}
                           </span>
                         ) : expired ? (
-                          <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-full font-semibold">
+                          <span className="text-xs sm:text-sm bg-red-50 text-red-500 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full font-semibold">
                             Expired
                           </span>
                         ) : (
-                          <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-semibold">
+                          <span className="text-xs sm:text-sm bg-indigo-50 text-indigo-600 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full font-semibold">
                             Active
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-xs text-gray-400">
+                      <div className="flex items-center gap-2.5 sm:gap-3">
+                        <span className="text-xs sm:text-sm text-gray-400">
                           Expires {formatDate(inv.expires_at)}
                         </span>
                         {!inv.is_used && !expired && (
-                          <button
-                            onClick={() => copyInviteLink(fullLink, inv.id)}
-                            className="p-1.5 rounded hover:bg-gray-100 transition-colors"
-                          >
-                            {copiedInvite === inv.id ? (
-                              <Check className="w-4 h-4 text-emerald-500" />
-                            ) : (
-                              <Copy className="w-4 h-4 text-gray-400" />
-                            )}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => copyInviteLink(fullLink, inv.id)}
+                              className="p-1.5 sm:p-2 rounded hover:bg-gray-100 transition-colors"
+                              title="Copy link"
+                            >
+                              {copiedInvite === inv.id ? (
+                                <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => cancelInvite(inv.id)}
+                              disabled={cancellingId === inv.id}
+                              className="p-1.5 sm:p-2 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                              title="Cancel invite"
+                            >
+                              {cancellingId === inv.id ? (
+                                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 hover:text-red-500" />
+                              )}
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -558,9 +613,9 @@ WHERE email = '${req.email}';`;
         )}
 
         {/* Instructions card */}
-        <div className="mt-10 bg-white rounded-xl border-[1.5px] border-gray-100 p-5 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
-          <h2 className="text-base font-semibold text-gray-900 mb-3">How it works</h2>
-          <div className="text-sm text-gray-500 space-y-2.5">
+        <div className="mt-10 sm:mt-12 bg-white rounded-xl border-[1.5px] border-gray-100 p-5 sm:p-6 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">How it works</h2>
+          <div className="text-sm sm:text-base text-gray-500 space-y-2.5 sm:space-y-3">
             <p>
               <strong>1.</strong> Click &quot;Generate link&quot; to create a unique invite URL.
             </p>
