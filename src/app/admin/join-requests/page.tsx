@@ -40,8 +40,10 @@ interface InviteToken {
 }
 
 const ADMIN_TOKEN_KEY = "slotly_admin_token";
+const ADMIN_USERNAME = "albertos";
 
 export default function AdminJoinRequestsPage() {
+  const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [requests, setRequests] = useState<JoinRequest[]>([]);
@@ -111,7 +113,11 @@ export default function AdminJoinRequestsPage() {
   }, [authenticated, filter, fetchRequests, fetchInvites]);
 
   const handleLogin = () => {
-    if (!token.trim()) return;
+    if (!username.trim() || !token.trim()) return;
+    if (username.trim().toLowerCase() !== ADMIN_USERNAME) {
+      setError("Invalid credentials.");
+      return;
+    }
     sessionStorage.setItem(ADMIN_TOKEN_KEY, token.trim());
     setAuthenticated(true);
   };
@@ -208,16 +214,28 @@ WHERE email = '${req.email}';`;
           <div className="bg-white rounded-xl border-[1.5px] border-gray-100 p-5">
             <div className="flex items-center gap-2 mb-4">
               <Lock className="w-4 h-4 text-gray-400" />
-              <h2 className="text-sm font-semibold text-gray-900">Enter admin token</h2>
+              <h2 className="text-sm font-semibold text-gray-900">Admin sign in</h2>
             </div>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              placeholder="Admin token"
-              className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
-            />
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                placeholder="Username"
+                autoComplete="username"
+                className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+              />
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                placeholder="Password"
+                autoComplete="current-password"
+                className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+              />
+            </div>
             {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
             <button
               onClick={handleLogin}
