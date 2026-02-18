@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, Zap, Users, Code2, Copy, Check } from "lucide-react";
+import { Zap, Code2 } from "lucide-react";
 import Link from "next/link";
 import type { EventType } from "@/lib/types";
 
-// Map first names to emoji avatars
 const NAME_EMOJIS: Record<string, string> = {
   alberto: "\u{1F468}\u{200D}\u{1F4BC}",
   jason: "\u{1F468}\u{200D}\u{1F4BB}",
@@ -18,11 +17,10 @@ const NAME_EMOJIS: Record<string, string> = {
   alex: "\u{1F9D1}\u{200D}\u{1F52C}",
   sam: "\u{1F9D1}\u{200D}\u{1F680}",
 };
-
-const FALLBACK_EMOJIS = ["\u{1F464}", "\u{1F9D1}", "\u{1F468}", "\u{1F469}", "\u{1F9D1}\u{200D}\u{1F4BC}"];
+const FALLBACK_EMOJIS = ["\u{1F464}", "\u{1F9D1}", "\u{1F468}", "\u{1F469}"];
 
 function getEmojiForName(name: string, index: number): string {
-  const first = name.split(" ")[0].toLowerCase();
+  const first = name.toLowerCase();
   return NAME_EMOJIS[first] || FALLBACK_EMOJIS[index % FALLBACK_EMOJIS.length];
 }
 
@@ -30,7 +28,7 @@ export default function Home() {
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  const [activeSlug, setActiveSlug] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -40,150 +38,112 @@ export default function Home() {
       .then(([types, members]) => {
         setEventTypes(types);
         setTeamMembers(members);
+        if (types.length > 0) setActiveSlug(types[0].slug);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, []);
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-
-  const copyEmbedCode = (slug: string) => {
-    const code = `<div id="slotly-widget" data-slug="${slug}"></div>\n<script src="${baseUrl}/embed.js"></script>`;
-    navigator.clipboard.writeText(code);
-    setCopiedSlug(slug);
-    setTimeout(() => setCopiedSlug(null), 2000);
-  };
+  const activeType = eventTypes.find((et) => et.slug === activeSlug);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-lg">
-        {/* Header */}
-        <div className="text-center mb-8 animate-fade-in-up">
-          <div className="inline-flex items-center gap-2 mb-4">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center animate-scale-in">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900">Slotly</h1>
+    <div className="min-h-screen bg-[#fafbfc]">
+      {/* ── Header ── */}
+      <header className="max-w-[880px] mx-auto flex items-center justify-between px-4 sm:px-5 pt-4">
+        <div className="flex items-center gap-2 animate-fade-in-up">
+          <div className="w-7 h-7 bg-indigo-600 rounded-lg grid place-items-center">
+            <Zap className="w-3.5 h-3.5 text-white" />
           </div>
-          <p className="text-gray-500 text-lg">
-            Pick a meeting type to get started.
-          </p>
+          <span className="text-lg font-bold tracking-tight text-gray-900">Slotly</span>
         </div>
+        <Link
+          href="/embed"
+          className="text-xs text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all animate-fade-in"
+        >
+          <Code2 className="w-3 h-3" />
+          Embed
+        </Link>
+      </header>
 
-        {/* Event Type Cards */}
-        <div className="space-y-3">
-          {loading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="skeleton h-20 rounded-xl" />
-              ))}
-            </div>
-          ) : eventTypes.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 animate-fade-in">
-              No event types configured yet.
-              <br />
-              <span className="text-sm">Run the schema.sql in Supabase to seed data.</span>
-            </div>
-          ) : (
-            eventTypes.map((et, i) => (
-              <div
-                key={et.id}
-                className={`bg-white rounded-xl border border-gray-200 p-5 hover:border-blue-400 hover:shadow-md transition-all group animate-fade-in-up stagger-${i + 1}`}
-              >
-                <Link href={`/book/${et.slug}`} className="flex items-center gap-4">
+      {/* ── Main ── */}
+      <main className="max-w-[880px] mx-auto px-3 sm:px-5 pt-4 sm:pt-5 pb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-[220px_1fr] gap-3 sm:gap-4 items-start">
+
+          {/* ── Sidebar: event type selector ── */}
+          <div className="flex sm:flex-col gap-1.5 overflow-x-auto sm:overflow-visible hide-scrollbar">
+            {loading ? (
+              <>
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="skeleton h-12 sm:h-[52px] rounded-xl min-w-[130px] sm:min-w-0" />
+                ))}
+              </>
+            ) : (
+              eventTypes.map((et, i) => (
+                <button
+                  key={et.id}
+                  onClick={() => setActiveSlug(et.slug)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all min-w-[130px] sm:min-w-0 w-full animate-fade-in-up stagger-${i + 1} ${
+                    activeSlug === et.slug
+                      ? "bg-indigo-50 border-[1.5px] border-indigo-500"
+                      : "bg-white border-[1.5px] border-gray-100 hover:border-indigo-200 hover:shadow-sm"
+                  }`}
+                >
                   <div
-                    className="w-2 h-12 rounded-full flex-shrink-0 transition-transform group-hover:scale-y-110"
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: et.color }}
                   />
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900 leading-tight truncate">
                       {et.title}
-                    </h2>
-                    {et.description && (
-                      <p className="text-gray-500 text-sm mt-0.5 truncate">{et.description}</p>
-                    )}
+                    </div>
+                    <div className="text-[11px] text-gray-400 mt-0.5 hidden sm:block truncate">
+                      {et.duration_minutes} min
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5 text-gray-400 text-sm flex-shrink-0">
-                    <Clock className="w-4 h-4" />
-                    <span>{et.duration_minutes} min</span>
-                  </div>
-                </Link>
-                {/* Embed code button */}
-                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-xs text-gray-400 flex items-center gap-1">
-                    <Code2 className="w-3 h-3" />
-                    Embeddable
-                  </span>
-                  <button
-                    onClick={() => copyEmbedCode(et.slug)}
-                    className="text-xs text-blue-500 hover:text-blue-700 font-medium flex items-center gap-1 transition-colors"
-                  >
-                    {copiedSlug === et.slug ? (
-                      <>
-                        <Check className="w-3 h-3 text-green-500" />
-                        <span className="text-green-500">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        Copy embed code
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Embed Demo */}
-        {eventTypes.length > 0 && (
-          <div className="mt-10 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-              <Code2 className="w-4 h-4" />
-              Embed Preview
-            </h2>
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-              <div className="bg-gray-800 px-4 py-2 flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-red-400" />
-                <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                <div className="w-3 h-3 rounded-full bg-green-400" />
-                <span className="ml-2 text-xs text-gray-400 font-mono">your-website.com</span>
-              </div>
-              <div className="p-4 bg-gray-50">
-                <iframe
-                  src={`/book/${eventTypes[0].slug}`}
-                  className="w-full border-none rounded-xl"
-                  style={{ height: "560px" }}
-                  title="Slotly embed preview"
-                />
-              </div>
-            </div>
+                </button>
+              ))
+            )}
           </div>
-        )}
 
-        {/* Footer */}
-        <div className="mt-8 text-center animate-fade-in" style={{ animationDelay: "0.4s" }}>
-          <div className="inline-flex items-center gap-1.5 text-xs text-gray-400">
-            <Users className="w-3.5 h-3.5" />
-            <span>Round-robin scheduling across our team</span>
-          </div>
-          {teamMembers.length > 0 && (
-            <div className="mt-2 flex items-center justify-center gap-2 animate-fade-in-up" style={{ animationDelay: "0.5s" }}>
-              {teamMembers.map((m, i) => (
-                <span
-                  key={m.id}
-                  className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full"
-                  title={m.name}
-                >
-                  <span className="text-sm">{getEmojiForName(m.name, i)}</span>
-                  {m.name.split(" ")[0]}
-                </span>
-              ))}
+          {/* ── Live widget area ── */}
+          <div className="relative bg-white border-[1.5px] border-gray-100 rounded-2xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.05)] animate-scale-in">
+            {/* Live badge */}
+            <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 bg-emerald-50 text-emerald-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-200">
+              <div className="w-[5px] h-[5px] bg-emerald-500 rounded-full animate-live-pulse" />
+              Live
             </div>
-          )}
+
+            {/* Embedded booking widget */}
+            {activeSlug ? (
+              <iframe
+                key={activeSlug}
+                src={`/book/${activeSlug}`}
+                className="w-full border-none block"
+                style={{ height: "480px" }}
+                title={`Book ${activeType?.title || "a meeting"}`}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-[480px] text-gray-300 text-sm">
+                Select a meeting type
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
+
+      {/* ── Footer ── */}
+      <footer className="max-w-[880px] mx-auto flex items-center justify-center gap-2.5 px-4 py-3 sm:py-4 text-[11px] text-gray-400 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+        <span>Round-robin across</span>
+        {teamMembers.map((m, i) => (
+          <span
+            key={m.id}
+            className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-[11px] px-2.5 py-0.5 rounded-full"
+          >
+            <span className="text-xs">{getEmojiForName(m.name, i)}</span>
+            {m.name}
+          </span>
+        ))}
+      </footer>
     </div>
   );
 }
