@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Zap,
@@ -22,6 +22,20 @@ type Step = "validating" | "invalid" | "info" | "calendar" | "review" | "done";
 const SERVICE_ACCOUNT_EMAIL = "slotly-calendar@slotly-fast-scheduling.iam.gserviceaccount.com";
 
 export default function JoinPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#fafbfc] flex items-center justify-center">
+          <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
+        </div>
+      }
+    >
+      <JoinPageInner />
+    </Suspense>
+  );
+}
+
+function JoinPageInner() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite") || "";
 
