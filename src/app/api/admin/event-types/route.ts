@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, is_active, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings")
+    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings")
     .order("title");
 
   if (error) {
@@ -38,14 +38,18 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { id, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings } = body;
+  const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Missing event type id" }, { status: 400 });
   }
 
-  // Validate numeric fields
+  // Validate fields
   const updates: Record<string, any> = {};
+
+  if (is_locked !== undefined) {
+    updates.is_locked = Boolean(is_locked);
+  }
 
   if (before_buffer_mins !== undefined) {
     const val = parseInt(before_buffer_mins);

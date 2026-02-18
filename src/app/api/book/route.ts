@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { sendBookingEmails } from "@/lib/email";
+import { fireWebhooks } from "@/lib/webhooks";
 import { addMinutes, parseISO } from "date-fns";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
@@ -238,6 +239,18 @@ export async function POST(request: NextRequest) {
       console.error("Email send failed:", emailErr);
       // Don't block booking — emails are best-effort
     }
+
+    // Fire webhooks (best-effort, don't block response)
+    fireWebhooks("booking.created", {
+      booking_id: booking.id,
+      event_type: eventType.title,
+      invitee_name: cleanName,
+      invitee_email: cleanEmail,
+      team_member: teamMember.name,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      timezone,
+    }).catch((err) => console.error("Webhook fire failed:", err));
 
     // Return minimal confirmation — no internal IDs, no emails
     return NextResponse.json({

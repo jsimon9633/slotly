@@ -15,10 +15,30 @@ export interface EventType {
   duration_minutes: number;
   color: string;
   is_active: boolean;
+  is_locked: boolean;
   before_buffer_mins: number;
   after_buffer_mins: number;
   min_notice_hours: number;
   max_daily_bookings: number | null;
+}
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];  // e.g. ["booking.created", "booking.cancelled"]
+  is_active: boolean;
+  secret: string;
+  created_at: string;
+}
+
+export interface WebhookLog {
+  id: string;
+  webhook_id: string;
+  event: string;
+  status_code: number | null;
+  response_body: string | null;
+  success: boolean;
+  created_at: string;
 }
 
 export interface Booking {

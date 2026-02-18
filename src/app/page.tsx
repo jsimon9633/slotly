@@ -18,7 +18,7 @@ async function getEventTypes(): Promise<EventType[]> {
     const { data } = await supabaseAdmin
       .from("event_types")
       .select(
-        "id, slug, title, description, duration_minutes, color, is_active, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings"
+        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings"
       )
       .eq("is_active", true)
       .order("duration_minutes", { ascending: true });
