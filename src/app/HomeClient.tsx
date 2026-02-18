@@ -230,9 +230,6 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
           </span>
         ))}
         </div>
-        <span>
-          Powered by <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
-        </span>
       </footer>
     </div>
   );
