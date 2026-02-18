@@ -202,19 +202,19 @@ WHERE email = '${req.email}';`;
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-[#fafbfc] flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-[360px] animate-fade-in-up">
-          <div className="flex items-center gap-2 justify-center mb-6">
-            <div className="w-7 h-7 bg-indigo-600 rounded-lg grid place-items-center">
-              <Zap className="w-3.5 h-3.5 text-white" />
+        <div className="w-full max-w-[400px] animate-fade-in-up">
+          <div className="flex items-center gap-2.5 justify-center mb-8">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg grid place-items-center">
+              <Zap className="w-4 h-4 text-white" />
             </div>
-            <span className="text-lg font-bold tracking-tight text-gray-900">Slotly</span>
-            <span className="text-xs text-gray-300 ml-1">Admin</span>
+            <span className="text-xl font-bold tracking-tight text-gray-900">Slotly</span>
+            <span className="text-sm text-gray-300 ml-1">Admin</span>
           </div>
 
-          <div className="bg-white rounded-xl border-[1.5px] border-gray-100 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Lock className="w-4 h-4 text-gray-400" />
-              <h2 className="text-sm font-semibold text-gray-900">Admin sign in</h2>
+          <div className="bg-white rounded-xl border-[1.5px] border-gray-100 p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <Lock className="w-5 h-5 text-gray-400" />
+              <h2 className="text-base font-semibold text-gray-900">Admin sign in</h2>
             </div>
             <div className="space-y-3">
               <input
@@ -224,7 +224,7 @@ WHERE email = '${req.email}';`;
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                 placeholder="Username"
                 autoComplete="username"
-                className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+                className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
               />
               <input
                 type="password"
@@ -233,13 +233,13 @@ WHERE email = '${req.email}';`;
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                 placeholder="Password"
                 autoComplete="current-password"
-                className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+                className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
               />
             </div>
-            {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+            {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
             <button
               onClick={handleLogin}
-              className="mt-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+              className="mt-4 w-full px-4 py-3 rounded-xl text-base font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
             >
               Sign in
             </button>
@@ -251,76 +251,76 @@ WHERE email = '${req.email}';`;
 
   return (
     <div className="min-h-screen bg-[#fafbfc]">
-      {/* Header */}
-      <header className="max-w-[680px] mx-auto flex items-center justify-between px-4 sm:px-5 pt-4">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-indigo-600 rounded-lg grid place-items-center">
-            <Zap className="w-3.5 h-3.5 text-white" />
+      {/* Header — logo not clickable in admin */}
+      <header className="max-w-[720px] mx-auto flex items-center justify-between px-5 sm:px-6 pt-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg grid place-items-center">
+            <Zap className="w-4 h-4 text-white" />
           </div>
-          <span className="text-lg font-bold tracking-tight text-gray-900">Slotly</span>
+          <span className="text-xl font-bold tracking-tight text-gray-900">Slotly</span>
           <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold ml-1">
             Admin
           </span>
         </div>
         <Link
           href="/"
-          className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all"
+          className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all"
         >
-          <ArrowLeft className="w-3 h-3" />
+          <ArrowLeft className="w-3.5 h-3.5" />
           Back
         </Link>
       </header>
 
-      <main className="max-w-[680px] mx-auto px-4 sm:px-5 pt-6 sm:pt-8 pb-12">
+      <main className="max-w-[720px] mx-auto px-5 sm:px-6 pt-7 sm:pt-9 pb-14">
         {/* Title */}
-        <div className="mb-5 animate-fade-in-up">
-          <div className="flex items-center gap-2 mb-1">
-            <Shield className="w-4 h-4 text-indigo-500" />
-            <h1 className="text-lg font-bold text-gray-900">Team Management</h1>
+        <div className="mb-6 animate-fade-in-up">
+          <div className="flex items-center gap-2.5 mb-1">
+            <Shield className="w-5 h-5 text-indigo-500" />
+            <h1 className="text-xl font-bold text-gray-900">Team Management</h1>
           </div>
-          <p className="text-sm text-gray-400">
+          <p className="text-base text-gray-400">
             Generate invite links and manage join requests.
           </p>
         </div>
 
         {/* Generate invite card */}
-        <div className="bg-white rounded-xl border-[1.5px] border-indigo-100 p-4 mb-5 animate-fade-in-up">
+        <div className="bg-white rounded-xl border-[1.5px] border-indigo-100 p-5 mb-6 animate-fade-in-up">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Send className="w-4 h-4 text-indigo-500" />
-              <h2 className="text-sm font-semibold text-gray-900">Invite a new team member</h2>
+            <div className="flex items-center gap-2.5">
+              <Send className="w-5 h-5 text-indigo-500" />
+              <h2 className="text-base font-semibold text-gray-900">Invite a new team member</h2>
             </div>
             <button
               onClick={generateInvite}
               disabled={generatingInvite}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
             >
               {generatingInvite ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <LinkIcon className="w-3 h-3" />
+                <LinkIcon className="w-4 h-4" />
               )}
               Generate link
             </button>
           </div>
 
           {newInviteLink && (
-            <div className="mt-2 animate-fade-in">
-              <p className="text-[11px] text-gray-400 mb-1.5">
+            <div className="mt-3 animate-fade-in">
+              <p className="text-sm text-gray-400 mb-2">
                 Share this link (expires in 7 days):
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-[11px] bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-2 text-indigo-600 break-all">
+                <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-indigo-600 break-all">
                   {newInviteLink}
                 </code>
                 <button
                   onClick={() => copyInviteLink(newInviteLink)}
-                  className="flex-shrink-0 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex-shrink-0 p-2.5 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   {copiedInvite === "new" ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <Check className="w-4 h-4 text-emerald-500" />
                   ) : (
-                    <Copy className="w-3.5 h-3.5 text-gray-400" />
+                    <Copy className="w-4 h-4 text-gray-400" />
                   )}
                 </button>
               </div>
@@ -329,10 +329,10 @@ WHERE email = '${req.email}';`;
         </div>
 
         {/* Tab toggle: Requests vs Invites */}
-        <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-lg p-0.5 animate-fade-in">
+        <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-lg p-1 animate-fade-in">
           <button
             onClick={() => setTab("requests")}
-            className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-all ${
+            className={`flex-1 text-sm font-semibold py-2 rounded-md transition-all ${
               tab === "requests" ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"
             }`}
           >
@@ -340,7 +340,7 @@ WHERE email = '${req.email}';`;
           </button>
           <button
             onClick={() => setTab("invites")}
-            className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-all ${
+            className={`flex-1 text-sm font-semibold py-2 rounded-md transition-all ${
               tab === "invites" ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-600"
             }`}
           >
@@ -352,12 +352,12 @@ WHERE email = '${req.email}';`;
         {tab === "requests" && (
           <>
             {/* Filter tabs + refresh */}
-            <div className="flex items-center gap-2 mb-4 animate-fade-in">
+            <div className="flex items-center gap-2 mb-5 animate-fade-in">
               {(["pending", "approved", "rejected"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all capitalize ${
+                  className={`text-sm font-semibold px-4 py-2 rounded-lg transition-all capitalize ${
                     filter === f
                       ? "bg-indigo-50 text-indigo-600 border border-indigo-200"
                       : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
@@ -368,60 +368,60 @@ WHERE email = '${req.email}';`;
               ))}
               <button
                 onClick={fetchRequests}
-                className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+                className="ml-auto p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
                 title="Refresh"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
               </button>
             </div>
 
             {/* Request cards */}
-            <div className="space-y-3">
+            <div className="space-y-4">
               {loading ? (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {[...Array(3)].map((_, i) => (
-                    <div key={i} className="skeleton h-48 rounded-xl" />
+                    <div key={i} className="skeleton h-52 rounded-xl" />
                   ))}
                 </div>
               ) : requests.length === 0 ? (
-                <div className="text-center py-12 text-gray-300 text-sm animate-fade-in">
+                <div className="text-center py-14 text-gray-300 text-base animate-fade-in">
                   No {filter} requests.
                 </div>
               ) : (
                 requests.map((req, i) => (
                   <div
                     key={req.id}
-                    className={`bg-white rounded-xl border-[1.5px] border-gray-100 p-4 animate-fade-in-up stagger-${i + 1}`}
+                    className={`bg-white rounded-xl border-[1.5px] border-gray-100 p-5 animate-fade-in-up stagger-${i + 1}`}
                   >
                     {/* Person info */}
-                    <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start justify-between mb-4">
                       <div>
-                        <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                          <User className="w-3.5 h-3.5 text-gray-400" />
+                        <div className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                          <User className="w-4 h-4 text-gray-400" />
                           {req.name}
                         </div>
-                        <div className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5">
-                          <Mail className="w-3 h-3" />
+                        <div className="text-sm text-gray-400 flex items-center gap-2 mt-1">
+                          <Mail className="w-3.5 h-3.5" />
                           {req.email}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <Clock className="w-3 h-3 text-gray-300" />
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="w-3.5 h-3.5 text-gray-300" />
                         <span className="text-gray-400">{formatDate(req.created_at)}</span>
                       </div>
                     </div>
 
                     {/* Calendar status */}
-                    <div className="flex items-center gap-1.5 text-xs mb-3">
-                      <Calendar className="w-3 h-3 text-gray-400" />
+                    <div className="flex items-center gap-2 text-sm mb-4">
+                      <Calendar className="w-4 h-4 text-gray-400" />
                       <span className="text-gray-500">Calendar shared:</span>
                       {req.calendar_shared ? (
-                        <span className="text-emerald-600 font-medium flex items-center gap-0.5">
-                          <CheckCircle2 className="w-3 h-3" /> Yes
+                        <span className="text-emerald-600 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-4 h-4" /> Yes
                         </span>
                       ) : (
-                        <span className="text-red-500 font-medium flex items-center gap-0.5">
-                          <XCircle className="w-3 h-3" /> No
+                        <span className="text-red-500 font-medium flex items-center gap-1">
+                          <XCircle className="w-4 h-4" /> No
                         </span>
                       )}
                     </div>
@@ -429,24 +429,24 @@ WHERE email = '${req.email}';`;
                     {/* SQL block (only for pending) */}
                     {filter === "pending" && (
                       <>
-                        <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">
+                        <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
                           SQL to run after approving
                         </div>
-                        <div className="bg-gray-900 rounded-lg p-3 font-mono text-[11px] leading-relaxed text-gray-300 overflow-x-auto whitespace-pre max-h-[180px]">
+                        <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs leading-relaxed text-gray-300 overflow-x-auto whitespace-pre max-h-[200px]">
                           {generateSQL(req)}
                         </div>
                         <button
                           onClick={() => copySQL(req)}
-                          className="mt-2 text-xs font-medium flex items-center gap-1 text-indigo-500 hover:text-indigo-700 transition-colors"
+                          className="mt-3 text-sm font-medium flex items-center gap-1.5 text-indigo-500 hover:text-indigo-700 transition-colors"
                         >
                           {copiedId === req.id ? (
                             <>
-                              <Check className="w-3 h-3 text-emerald-500" />
+                              <Check className="w-4 h-4 text-emerald-500" />
                               <span className="text-emerald-500">Copied!</span>
                             </>
                           ) : (
                             <>
-                              <Copy className="w-3 h-3" />
+                              <Copy className="w-4 h-4" />
                               Copy SQL
                             </>
                           )}
@@ -456,28 +456,28 @@ WHERE email = '${req.email}';`;
 
                     {/* Action buttons (only for pending) */}
                     {filter === "pending" && (
-                      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100">
+                      <div className="flex items-center gap-3 mt-5 pt-4 border-t border-gray-100">
                         <button
                           onClick={() => updateStatus(req.id, "approved")}
                           disabled={updatingId === req.id}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-all disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-all disabled:opacity-50"
                         >
                           {updatingId === req.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <CheckCircle2 className="w-3 h-3" />
+                            <CheckCircle2 className="w-4 h-4" />
                           )}
                           Approve
                         </button>
                         <button
                           onClick={() => updateStatus(req.id, "rejected")}
                           disabled={updatingId === req.id}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-all disabled:opacity-50"
                         >
                           {updatingId === req.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <XCircle className="w-3 h-3" />
+                            <XCircle className="w-4 h-4" />
                           )}
                           Reject
                         </button>
@@ -492,9 +492,9 @@ WHERE email = '${req.email}';`;
 
         {/* INVITES TAB */}
         {tab === "invites" && (
-          <div className="space-y-2 animate-fade-in">
+          <div className="space-y-3 animate-fade-in">
             {invites.length === 0 ? (
-              <div className="text-center py-12 text-gray-300 text-sm">
+              <div className="text-center py-14 text-gray-300 text-base">
                 No invites generated yet.
               </div>
             ) : (
@@ -504,7 +504,7 @@ WHERE email = '${req.email}';`;
                 return (
                   <div
                     key={inv.id}
-                    className={`bg-white rounded-xl border-[1.5px] p-3 ${
+                    className={`bg-white rounded-xl border-[1.5px] p-4 ${
                       inv.is_used
                         ? "border-emerald-100"
                         : expired
@@ -513,38 +513,38 @@ WHERE email = '${req.email}';`;
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <LinkIcon className="w-3.5 h-3.5 text-gray-400" />
-                        <code className="text-[11px] text-gray-500">
+                      <div className="flex items-center gap-2.5">
+                        <LinkIcon className="w-4 h-4 text-gray-400" />
+                        <code className="text-sm text-gray-500">
                           ...{inv.token.slice(-12)}
                         </code>
                         {inv.is_used ? (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-full font-semibold">
+                          <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-semibold">
                             Used by {inv.used_by_email}
                           </span>
                         ) : expired ? (
-                          <span className="text-[10px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full font-semibold">
+                          <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-full font-semibold">
                             Expired
                           </span>
                         ) : (
-                          <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full font-semibold">
+                          <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-semibold">
                             Active
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-400">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xs text-gray-400">
                           Expires {formatDate(inv.expires_at)}
                         </span>
                         {!inv.is_used && !expired && (
                           <button
                             onClick={() => copyInviteLink(fullLink, inv.id)}
-                            className="p-1 rounded hover:bg-gray-100 transition-colors"
+                            className="p-1.5 rounded hover:bg-gray-100 transition-colors"
                           >
                             {copiedInvite === inv.id ? (
-                              <Check className="w-3 h-3 text-emerald-500" />
+                              <Check className="w-4 h-4 text-emerald-500" />
                             ) : (
-                              <Copy className="w-3 h-3 text-gray-400" />
+                              <Copy className="w-4 h-4 text-gray-400" />
                             )}
                           </button>
                         )}
@@ -558,9 +558,9 @@ WHERE email = '${req.email}';`;
         )}
 
         {/* Instructions card */}
-        <div className="mt-8 bg-white rounded-xl border-[1.5px] border-gray-100 p-4 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
-          <h2 className="text-sm font-semibold text-gray-900 mb-2">How it works</h2>
-          <div className="text-xs text-gray-500 space-y-2">
+        <div className="mt-10 bg-white rounded-xl border-[1.5px] border-gray-100 p-5 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
+          <h2 className="text-base font-semibold text-gray-900 mb-3">How it works</h2>
+          <div className="text-sm text-gray-500 space-y-2.5">
             <p>
               <strong>1.</strong> Click &quot;Generate link&quot; to create a unique invite URL.
             </p>
