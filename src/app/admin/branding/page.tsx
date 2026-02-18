@@ -245,7 +245,7 @@ export default function AdminBrandingPage() {
                 className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
               />
               <p className="text-xs text-gray-400 mt-2">
-                Shown in the header and &quot;Powered by&quot; footer.
+                Shown in the page header. The footer always shows &quot;Powered by Slotly&quot;.
               </p>
             </div>
 
@@ -395,7 +395,7 @@ export default function AdminBrandingPage() {
                   Selected Time Slot
                 </div>
                 <span className="text-xs text-gray-400">
-                  Powered by <span className="font-semibold text-gray-500">{companyName || "Slotly"}</span>
+                  Powered by <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
                 </span>
               </div>
             </div>
