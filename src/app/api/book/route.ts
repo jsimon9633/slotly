@@ -119,13 +119,36 @@ export async function POST(request: NextRequest) {
     // Get event type — only needed fields
     const { data: eventType } = await supabaseAdmin
       .from("event_types")
-      .select("id, title, duration_minutes")
+      .select("id, title, duration_minutes, max_daily_bookings")
       .eq("slug", eventTypeSlug)
       .eq("is_active", true)
       .single();
 
     if (!eventType) {
       return NextResponse.json({ error: "Event type not found" }, { status: 404 });
+    }
+
+    // Daily meeting limit check
+    if (eventType.max_daily_bookings && eventType.max_daily_bookings > 0) {
+      const dayStart = new Date(parsedStart);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(parsedStart);
+      dayEnd.setUTCHours(23, 59, 59, 999);
+
+      const { count } = await supabaseAdmin
+        .from("bookings")
+        .select("id", { count: "exact", head: true })
+        .eq("event_type_id", eventType.id)
+        .eq("status", "confirmed")
+        .gte("start_time", dayStart.toISOString())
+        .lte("start_time", dayEnd.toISOString());
+
+      if (count !== null && count >= eventType.max_daily_bookings) {
+        return NextResponse.json(
+          { error: "No more bookings available for this day" },
+          { status: 409 }
+        );
+      }
     }
 
     // Round-robin: pick the team member who was booked least recently

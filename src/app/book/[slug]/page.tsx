@@ -18,9 +18,10 @@ import {
   Loader2,
   Sparkles,
   X,
+  Globe,
 } from "lucide-react";
 import Link from "next/link";
-import type { EventType, TimeSlot } from "@/lib/types";
+import type { EventType, TimeSlot, SiteSettings } from "@/lib/types";
 
 type Step = "date" | "time" | "form" | "confirmed";
 
@@ -38,6 +39,34 @@ const TOPIC_SUGGESTIONS = [
   "Budget Planning",
   "Campaign Review",
   "Talent Acquisition",
+];
+
+// Common timezones grouped by region
+const COMMON_TIMEZONES = [
+  { label: "US Eastern", value: "America/New_York" },
+  { label: "US Central", value: "America/Chicago" },
+  { label: "US Mountain", value: "America/Denver" },
+  { label: "US Pacific", value: "America/Los_Angeles" },
+  { label: "US Alaska", value: "America/Anchorage" },
+  { label: "US Hawaii", value: "Pacific/Honolulu" },
+  { label: "London", value: "Europe/London" },
+  { label: "Paris / Berlin", value: "Europe/Paris" },
+  { label: "Helsinki / Bucharest", value: "Europe/Helsinki" },
+  { label: "Istanbul", value: "Europe/Istanbul" },
+  { label: "Dubai", value: "Asia/Dubai" },
+  { label: "Mumbai / Kolkata", value: "Asia/Kolkata" },
+  { label: "Bangkok / Jakarta", value: "Asia/Bangkok" },
+  { label: "Singapore / KL", value: "Asia/Singapore" },
+  { label: "Shanghai / Beijing", value: "Asia/Shanghai" },
+  { label: "Tokyo", value: "Asia/Tokyo" },
+  { label: "Seoul", value: "Asia/Seoul" },
+  { label: "Sydney", value: "Australia/Sydney" },
+  { label: "Auckland", value: "Pacific/Auckland" },
+  { label: "São Paulo", value: "America/Sao_Paulo" },
+  { label: "Buenos Aires", value: "America/Argentina/Buenos_Aires" },
+  { label: "Toronto", value: "America/Toronto" },
+  { label: "Mexico City", value: "America/Mexico_City" },
+  { label: "Bogotá / Lima", value: "America/Bogota" },
 ];
 
 // Detect if we're in an iframe (embed mode)
@@ -60,6 +89,12 @@ export default function BookingPage() {
   const dateScrollRef = useRef<HTMLDivElement>(null);
 
   const [eventType, setEventType] = useState<EventType | null>(null);
+  const [settings, setSettings] = useState<SiteSettings>({
+    company_name: "Slotly",
+    logo_url: null,
+    primary_color: "#4f46e5",
+    accent_color: "#3b82f6",
+  });
   const [step, setStep] = useState<Step>("date");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -80,7 +115,27 @@ export default function BookingPage() {
   const [showTopicSuggestions, setShowTopicSuggestions] = useState(false);
   const [filteredTopics, setFilteredTopics] = useState(TOPIC_SUGGESTIONS);
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // Timezone — auto-detected, user can override
+  const [timezone, setTimezone] = useState(() =>
+    typeof window !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : "America/New_York"
+  );
+  const [showTzPicker, setShowTzPicker] = useState(false);
+  const [tzSearch, setTzSearch] = useState("");
+  const tzPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close timezone picker on click outside
+  useEffect(() => {
+    if (!showTzPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      if (tzPickerRef.current && !tzPickerRef.current.contains(e.target as Node)) {
+        setShowTzPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showTzPicker]);
 
   // Generate next 14 days
   const today = startOfDay(new Date());
@@ -102,16 +157,19 @@ export default function BookingPage() {
     }
   }, [topic]);
 
-  // Fetch event type
+  // Fetch event type + branding
   useEffect(() => {
-    const baseUrl = isEmbed ? "" : "";
-    fetch(`${baseUrl}/api/event-types`)
+    fetch("/api/event-types")
       .then((r) => r.json())
       .then((types: EventType[]) => {
         const et = types.find((t) => t.slug === slug);
         if (et) setEventType(et);
       });
-  }, [slug, isEmbed]);
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((s) => { if (s) setSettings(s); })
+      .catch(() => {});
+  }, [slug]);
 
   // Fetch slots when date selected
   useEffect(() => {
@@ -195,12 +253,60 @@ export default function BookingPage() {
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
                 {eventType.title}
               </h1>
-              <p className="text-gray-500 text-xs sm:text-sm">
-                {eventType.duration_minutes} min · {timezone.replace(/_/g, " ")}
+              <p className="text-gray-500 text-xs sm:text-sm flex items-center gap-1">
+                {eventType.duration_minutes} min ·{" "}
+                <button
+                  onClick={() => setShowTzPicker(!showTzPicker)}
+                  className="inline-flex items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2"
+                >
+                  <Globe className="w-3 h-3" />
+                  {timezone.replace(/_/g, " ")}
+                </button>
               </p>
             </div>
           </div>
         </div>
+
+        {/* Timezone Picker Dropdown */}
+        {showTzPicker && (
+          <div
+            ref={tzPickerRef}
+            className="bg-white rounded-xl border border-gray-200 shadow-lg mb-4 overflow-hidden animate-fade-in"
+          >
+            <div className="p-3 border-b border-gray-100">
+              <input
+                type="text"
+                value={tzSearch}
+                onChange={(e) => setTzSearch(e.target.value)}
+                placeholder="Search timezones..."
+                autoFocus
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm"
+              />
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {COMMON_TIMEZONES.filter(
+                (tz) =>
+                  tz.label.toLowerCase().includes(tzSearch.toLowerCase()) ||
+                  tz.value.toLowerCase().includes(tzSearch.toLowerCase())
+              ).map((tz) => (
+                <button
+                  key={tz.value}
+                  onClick={() => {
+                    setTimezone(tz.value);
+                    setShowTzPicker(false);
+                    setTzSearch("");
+                  }}
+                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 transition-colors flex items-center justify-between ${
+                    timezone === tz.value ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"
+                  }`}
+                >
+                  <span>{tz.label}</span>
+                  <span className="text-xs text-gray-400">{tz.value.replace(/_/g, " ")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── STEP: Confirmed ── */}
         {step === "confirmed" && confirmation && (
@@ -287,13 +393,14 @@ export default function BookingPage() {
                         disabled={isWeekend}
                         className={`flex-1 min-w-0 py-2 sm:py-3 rounded-xl text-center transition-all duration-200 animate-fade-in-up stagger-${i + 1} ${
                           isSelected
-                            ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 scale-[1.02]"
+                            ? "text-white shadow-lg scale-[1.02]"
                             : isWeekend
                             ? "bg-gray-50 text-gray-300 cursor-not-allowed"
                             : isToday
                             ? "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
                             : "bg-gray-50 hover:bg-blue-50 hover:border-blue-200 text-gray-700 border border-transparent"
                         }`}
+                      style={isSelected ? { backgroundColor: settings.primary_color } : undefined}
                       >
                         <div className="text-[10px] sm:text-xs font-medium opacity-70">
                           {format(day, "EEE")}
@@ -459,10 +566,13 @@ export default function BookingPage() {
               <button
                 onClick={handleBook}
                 disabled={!name || !email || booking}
-                className={`w-full py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-sm sm:text-base animate-fade-in-up ${
-                  !booking && name && email ? "hover:shadow-lg hover:shadow-blue-600/25 hover:scale-[1.01] active:scale-[0.99]" : ""
+                className={`w-full py-2.5 sm:py-3 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-sm sm:text-base animate-fade-in-up ${
+                  !booking && name && email ? "hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]" : ""
                 }`}
-                style={{ animationDelay: "0.25s" }}
+                style={{
+                  animationDelay: "0.25s",
+                  backgroundColor: !name || !email || booking ? undefined : settings.primary_color,
+                }}
               >
                 {booking ? (
                   <>
@@ -484,7 +594,7 @@ export default function BookingPage() {
         <div className="mt-4 sm:mt-6 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
           <span className="text-[10px] sm:text-xs text-gray-400">
             Powered by{" "}
-            <span className="font-semibold text-gray-500">Slotly</span>
+            <span className="font-semibold text-gray-500">{settings.company_name}</span>
           </span>
         </div>
       </div>

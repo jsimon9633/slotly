@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   // Look up event type — only fetch needed fields
   const { data: eventType, error: etError } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color")
+    .select("id, slug, title, duration_minutes, color, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings")
     .eq("slug", eventTypeSlug)
     .eq("is_active", true)
     .single();
@@ -50,7 +50,12 @@ export async function GET(request: NextRequest) {
     const rawSlots = await getCombinedAvailability(
       date,
       eventType.duration_minutes,
-      timezone
+      timezone,
+      {
+        beforeBufferMins: eventType.before_buffer_mins || 0,
+        afterBufferMins: eventType.after_buffer_mins || 0,
+        minNoticeHours: eventType.min_notice_hours || 0,
+      }
     );
 
     // Strip internal member IDs — clients don't need to know which team member is available
