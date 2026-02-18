@@ -51,7 +51,7 @@ async function getEventType(slug: string): Promise<EventType | null> {
     const { data } = await supabaseAdmin
       .from("event_types")
       .select(
-        "id, slug, title, description, duration_minutes, color, is_active, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings"
+        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings"
       )
       .eq("slug", slug)
       .eq("is_active", true)

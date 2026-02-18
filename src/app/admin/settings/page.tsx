@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Settings,
   Lock,
+  Unlock,
   Loader2,
   Check,
   Clock,
@@ -23,6 +24,7 @@ interface EventTypeSettings {
   duration_minutes: number;
   color: string;
   is_active: boolean;
+  is_locked: boolean;
   before_buffer_mins: number;
   after_buffer_mins: number;
   min_notice_hours: number;
@@ -167,6 +169,30 @@ export default function AdminSettingsPage() {
     }
   };
 
+  const handleToggleLock = async (et: EventTypeSettings) => {
+    setSavingId(et.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: et.id, is_locked: !et.is_locked }),
+      });
+      if (res.ok) {
+        setSavedId(et.id);
+        setTimeout(() => setSavedId(null), 2500);
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to toggle lock.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   // Auth gate
   if (!authenticated) {
     return (
@@ -239,21 +265,33 @@ export default function AdminSettingsPage() {
 
       {/* Admin nav */}
       <div className="max-w-[720px] sm:max-w-[860px] mx-auto px-5 sm:px-8 pt-4">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 sm:p-1.5">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 sm:p-1.5 overflow-x-auto hide-scrollbar">
           <Link
             href="/admin/join-requests"
-            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
             Team
           </Link>
-          <div className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center bg-white text-gray-900 shadow-sm">
+          <div className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center bg-white text-gray-900 shadow-sm whitespace-nowrap px-2">
             Settings
           </div>
           <Link
             href="/admin/branding"
-            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
             Branding
+          </Link>
+          <Link
+            href="/admin/webhooks"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Webhooks
+          </Link>
+          <Link
+            href="/admin/analytics"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Analytics
           </Link>
         </div>
       </div>
@@ -306,6 +344,22 @@ export default function AdminSettingsPage() {
                       Inactive
                     </span>
                   )}
+                  <button
+                    onClick={() => handleToggleLock(et)}
+                    disabled={savingId === et.id}
+                    title={et.is_locked ? "Unlock event type (allow team edits)" : "Lock event type (admin only)"}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                      et.is_locked
+                        ? "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                        : "bg-gray-50 text-gray-400 hover:bg-gray-100 border border-gray-200"
+                    }`}
+                  >
+                    {et.is_locked ? (
+                      <><Lock className="w-3 h-3" /> Locked</>
+                    ) : (
+                      <><Unlock className="w-3 h-3" /> Unlocked</>
+                    )}
+                  </button>
                 </div>
 
                 {/* Settings grid */}
