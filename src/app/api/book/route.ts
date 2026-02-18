@@ -190,21 +190,25 @@ export async function POST(request: NextRequest) {
       .update({ last_booked_at: new Date().toISOString() })
       .eq("id", teamMember.id);
 
-    // Send confirmation + team member alert emails (non-blocking)
-    sendBookingEmails({
-      inviteeName: cleanName,
-      inviteeEmail: cleanEmail,
-      teamMemberName: teamMember.name,
-      teamMemberEmail: teamMember.email,
-      eventTitle: eventType.title,
-      durationMinutes: eventType.duration_minutes,
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      timezone,
-      notes: cleanNotes,
-    }).catch((err) => {
-      console.error("Email send failed:", err);
-    });
+    // Send confirmation + team member alert emails
+    // Must await in serverless — Lambda freezes after response is sent
+    try {
+      await sendBookingEmails({
+        inviteeName: cleanName,
+        inviteeEmail: cleanEmail,
+        teamMemberName: teamMember.name,
+        teamMemberEmail: teamMember.email,
+        eventTitle: eventType.title,
+        durationMinutes: eventType.duration_minutes,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        timezone,
+        notes: cleanNotes,
+      });
+    } catch (emailErr) {
+      console.error("Email send failed:", emailErr);
+      // Don't block booking — emails are best-effort
+    }
 
     // Return minimal confirmation — no internal IDs, no emails
     return NextResponse.json({
