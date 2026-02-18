@@ -147,6 +147,9 @@ export interface BookingEmailData {
   timezone: string;
   notes?: string | null;
   manageToken: string;
+  meetLink?: string;
+  meetPhone?: string;
+  meetPin?: string;
 }
 
 // ─── Booking details block (reused across templates) ─────
@@ -161,6 +164,9 @@ function bookingDetailsHtml(data: {
   inviteeName?: string;
   inviteeEmail?: string;
   notes?: string | null;
+  meetLink?: string;
+  meetPhone?: string;
+  meetPin?: string;
 }): string {
   const dateStr = formatDateTime(data.startTime, data.timezone);
   const endStr = formatTime(data.endTime, data.timezone);
@@ -199,6 +205,16 @@ function bookingDetailsHtml(data: {
               <td style="padding:6px 0;font-size:13px;color:#9ca3af;vertical-align:top;">Duration</td>
               <td style="padding:6px 0;font-size:15px;color:#111827;">${data.durationMinutes} minutes</td>
             </tr>
+            ${data.meetLink ? `
+            <tr>
+              <td style="padding:6px 0;font-size:13px;color:#9ca3af;vertical-align:top;">Join</td>
+              <td style="padding:6px 0;">
+                <a href="${data.meetLink}" style="display:inline-block;padding:6px 14px;background:#1a73e8;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">
+                  Join with Google Meet
+                </a>
+                ${data.meetPhone ? `<br/><span style="font-size:12px;color:#6b7280;margin-top:4px;display:inline-block;">Or dial: ${data.meetPhone}${data.meetPin ? ` PIN: ${data.meetPin}#` : ""}</span>` : ""}
+              </td>
+            </tr>` : ""}
             ${data.notes ? `
             <tr>
               <td style="padding:6px 0;font-size:13px;color:#9ca3af;vertical-align:top;">Notes</td>
@@ -229,6 +245,9 @@ function buildConfirmationEmail(data: BookingEmailData): { subject: string; html
       durationMinutes: data.durationMinutes,
       withName: data.teamMemberName,
       notes: data.notes,
+      meetLink: data.meetLink,
+      meetPhone: data.meetPhone,
+      meetPin: data.meetPin,
     })}
 
     <p style="margin:0;font-size:14px;color:#6b7280;">
@@ -261,6 +280,9 @@ function buildTeamMemberAlertEmail(data: BookingEmailData): { subject: string; h
       inviteeName: data.inviteeName,
       inviteeEmail: data.inviteeEmail,
       notes: data.notes,
+      meetLink: data.meetLink,
+      meetPhone: data.meetPhone,
+      meetPin: data.meetPin,
     })}
 
     <p style="margin:0;font-size:14px;color:#6b7280;">

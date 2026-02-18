@@ -175,10 +175,13 @@ export async function POST(request: NextRequest) {
     const start = parsedStart;
     const end = addMinutes(start, eventType.duration_minutes);
 
-    // Create Google Calendar event
+    // Create Google Calendar event (with Google Meet)
     let googleEventId: string | null = null;
+    let meetLink: string | undefined;
+    let meetPhone: string | undefined;
+    let meetPin: string | undefined;
     try {
-      googleEventId = await createCalendarEvent({
+      const calResult = await createCalendarEvent({
         calendarId: teamMember.google_calendar_id,
         summary: `${eventType.title} with ${cleanName}`,
         description: `Booked via Slotly\n\nInvitee: ${cleanName}\nPhone: ${cleanPhone}${cleanNotes ? `\nNotes: ${cleanNotes}` : ""}`,
@@ -187,6 +190,10 @@ export async function POST(request: NextRequest) {
         attendeeEmail: cleanEmail,
         timezone,
       });
+      googleEventId = calResult.eventId;
+      meetLink = calResult.meetLink;
+      meetPhone = calResult.meetPhone;
+      meetPin = calResult.meetPin;
     } catch (calErr: any) {
       // Log error without exposing sensitive details
       console.error("Calendar event creation failed for booking");
@@ -241,6 +248,9 @@ export async function POST(request: NextRequest) {
         timezone,
         notes: cleanNotes,
         manageToken,
+        meetLink,
+        meetPhone,
+        meetPin,
       });
     } catch (emailErr) {
       console.error("Email send failed:", emailErr);
