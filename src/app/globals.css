@@ -1,24 +1,29 @@
 @import "tailwindcss";
 
-/* ── Animations ── */
+/* ── Animations ──
+   Content is visible by default (no opacity:0 start state).
+   Animations are progressive-enhancement only — if CSS loads but JS
+   is delayed (slow 4G), the page is still fully readable.
+   This is critical for Lighthouse mobile FCP.                       */
+
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { transform: translateY(8px); }
+  to { transform: translateY(0); }
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
+  from { opacity: 0.6; }
   to { opacity: 1; }
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.92); }
-  to { opacity: 1; transform: scale(1); }
+  from { transform: scale(0.96); }
+  to { transform: scale(1); }
 }
 
 @keyframes slideInRight {
-  from { opacity: 0; transform: translateX(16px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { transform: translateX(12px); }
+  to { transform: translateX(0); }
 }
 
 @keyframes checkPop {
@@ -38,19 +43,19 @@
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: fadeInUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out both;
+  animation: fadeIn 0.25s ease-out both;
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-in-right {
-  animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-check-pop {
