@@ -68,6 +68,12 @@ export async function createCalendarEvent(params: {
       timeZone: params.timezone,
     },
     attendees: [{ email: params.attendeeEmail }],
+    conferenceData: {
+      createRequest: {
+        requestId: `slotly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    },
     reminders: {
       useDefault: false,
       overrides: [
@@ -84,6 +90,7 @@ export async function createCalendarEvent(params: {
       calendarId: "primary",
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
     // Event created via impersonation
     return res.data.id!;
@@ -98,6 +105,7 @@ export async function createCalendarEvent(params: {
       calendarId: params.calendarId,
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
     // Event created via shared calendar
     return res.data.id!;
@@ -117,6 +125,7 @@ export async function createCalendarEvent(params: {
       ],
     },
     sendUpdates: "all",
+    conferenceDataVersion: 1,
   });
   // Event created on service account calendar with invites
   return res.data.id!;
@@ -197,6 +206,12 @@ export async function updateCalendarEvent(params: {
       timeZone: params.timezone,
     },
     attendees: [{ email: params.attendeeEmail }],
+    conferenceData: {
+      createRequest: {
+        requestId: `slotly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    },
     reminders: {
       useDefault: false,
       overrides: [
@@ -214,6 +229,7 @@ export async function updateCalendarEvent(params: {
       eventId: params.googleEventId,
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
     return res.data.id!;
   } catch {
@@ -228,6 +244,7 @@ export async function updateCalendarEvent(params: {
       eventId: params.googleEventId,
       requestBody: eventBody,
       sendUpdates: "all",
+      conferenceDataVersion: 1,
     });
     return res.data.id!;
   } catch {
@@ -247,6 +264,7 @@ export async function updateCalendarEvent(params: {
       ],
     },
     sendUpdates: "all",
+    conferenceDataVersion: 1,
   });
   return res.data.id!;
 }

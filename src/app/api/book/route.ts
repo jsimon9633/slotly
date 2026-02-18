@@ -55,10 +55,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { eventTypeSlug, startTime, timezone, name, email, notes } = body;
+  const { eventTypeSlug, startTime, timezone, name, email, phone, notes } = body;
 
   // Validate required fields
-  if (!eventTypeSlug || !startTime || !timezone || !name || !email) {
+  if (!eventTypeSlug || !startTime || !timezone || !name || !email || !phone) {
     return NextResponse.json(
       { error: "Missing required fields" },
       { status: 400 }
@@ -71,7 +71,8 @@ export async function POST(request: NextRequest) {
     typeof startTime !== "string" ||
     typeof timezone !== "string" ||
     typeof name !== "string" ||
-    typeof email !== "string"
+    typeof email !== "string" ||
+    typeof phone !== "string"
   ) {
     return NextResponse.json({ error: "Invalid field types" }, { status: 400 });
   }
@@ -79,7 +80,12 @@ export async function POST(request: NextRequest) {
   // Validate & sanitize inputs
   const cleanName = sanitizeString(name, MAX_NAME_LENGTH);
   const cleanEmail = sanitizeString(email, MAX_EMAIL_LENGTH).toLowerCase();
+  const cleanPhone = phone.replace(/[^\d+\-() ]/g, "").slice(0, 20);
   const cleanNotes = notes ? sanitizeString(String(notes), MAX_NOTES_LENGTH) : null;
+
+  if (!cleanPhone || cleanPhone.replace(/\D/g, "").length < 7) {
+    return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
+  }
 
   if (!cleanName || cleanName.length < 2) {
     return NextResponse.json({ error: "Name is too short" }, { status: 400 });
@@ -175,7 +181,7 @@ export async function POST(request: NextRequest) {
       googleEventId = await createCalendarEvent({
         calendarId: teamMember.google_calendar_id,
         summary: `${eventType.title} with ${cleanName}`,
-        description: `Booked via Slotly\n\nInvitee: ${cleanName}${cleanNotes ? `\nNotes: ${cleanNotes}` : ""}`,
+        description: `Booked via Slotly\n\nInvitee: ${cleanName}\nPhone: ${cleanPhone}${cleanNotes ? `\nNotes: ${cleanNotes}` : ""}`,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
         attendeeEmail: cleanEmail,
@@ -197,6 +203,7 @@ export async function POST(request: NextRequest) {
         team_member_id: teamMember.id,
         invitee_name: cleanName,
         invitee_email: cleanEmail,
+        invitee_phone: cleanPhone,
         invitee_notes: cleanNotes,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
@@ -246,6 +253,7 @@ export async function POST(request: NextRequest) {
       event_type: eventType.title,
       invitee_name: cleanName,
       invitee_email: cleanEmail,
+      invitee_phone: cleanPhone,
       team_member: teamMember.name,
       start_time: start.toISOString(),
       end_time: end.toISOString(),

@@ -23,6 +23,87 @@ import type { EventType, TimeSlot, SiteSettings } from "@/lib/types";
 
 type Step = "date" | "time" | "form" | "confirmed";
 
+// Country codes with flag emojis — sorted by most common usage
+const COUNTRIES = [
+  { code: "US", dial: "+1", flag: "\u{1F1FA}\u{1F1F8}", name: "United States" },
+  { code: "GB", dial: "+44", flag: "\u{1F1EC}\u{1F1E7}", name: "United Kingdom" },
+  { code: "CA", dial: "+1", flag: "\u{1F1E8}\u{1F1E6}", name: "Canada" },
+  { code: "AU", dial: "+61", flag: "\u{1F1E6}\u{1F1FA}", name: "Australia" },
+  { code: "DE", dial: "+49", flag: "\u{1F1E9}\u{1F1EA}", name: "Germany" },
+  { code: "FR", dial: "+33", flag: "\u{1F1EB}\u{1F1F7}", name: "France" },
+  { code: "ES", dial: "+34", flag: "\u{1F1EA}\u{1F1F8}", name: "Spain" },
+  { code: "IT", dial: "+39", flag: "\u{1F1EE}\u{1F1F9}", name: "Italy" },
+  { code: "NL", dial: "+31", flag: "\u{1F1F3}\u{1F1F1}", name: "Netherlands" },
+  { code: "BR", dial: "+55", flag: "\u{1F1E7}\u{1F1F7}", name: "Brazil" },
+  { code: "MX", dial: "+52", flag: "\u{1F1F2}\u{1F1FD}", name: "Mexico" },
+  { code: "AR", dial: "+54", flag: "\u{1F1E6}\u{1F1F7}", name: "Argentina" },
+  { code: "CO", dial: "+57", flag: "\u{1F1E8}\u{1F1F4}", name: "Colombia" },
+  { code: "CL", dial: "+56", flag: "\u{1F1E8}\u{1F1F1}", name: "Chile" },
+  { code: "PE", dial: "+51", flag: "\u{1F1F5}\u{1F1EA}", name: "Peru" },
+  { code: "IN", dial: "+91", flag: "\u{1F1EE}\u{1F1F3}", name: "India" },
+  { code: "JP", dial: "+81", flag: "\u{1F1EF}\u{1F1F5}", name: "Japan" },
+  { code: "KR", dial: "+82", flag: "\u{1F1F0}\u{1F1F7}", name: "South Korea" },
+  { code: "CN", dial: "+86", flag: "\u{1F1E8}\u{1F1F3}", name: "China" },
+  { code: "SG", dial: "+65", flag: "\u{1F1F8}\u{1F1EC}", name: "Singapore" },
+  { code: "AE", dial: "+971", flag: "\u{1F1E6}\u{1F1EA}", name: "UAE" },
+  { code: "SA", dial: "+966", flag: "\u{1F1F8}\u{1F1E6}", name: "Saudi Arabia" },
+  { code: "IL", dial: "+972", flag: "\u{1F1EE}\u{1F1F1}", name: "Israel" },
+  { code: "ZA", dial: "+27", flag: "\u{1F1FF}\u{1F1E6}", name: "South Africa" },
+  { code: "NG", dial: "+234", flag: "\u{1F1F3}\u{1F1EC}", name: "Nigeria" },
+  { code: "EG", dial: "+20", flag: "\u{1F1EA}\u{1F1EC}", name: "Egypt" },
+  { code: "KE", dial: "+254", flag: "\u{1F1F0}\u{1F1EA}", name: "Kenya" },
+  { code: "PH", dial: "+63", flag: "\u{1F1F5}\u{1F1ED}", name: "Philippines" },
+  { code: "TH", dial: "+66", flag: "\u{1F1F9}\u{1F1ED}", name: "Thailand" },
+  { code: "VN", dial: "+84", flag: "\u{1F1FB}\u{1F1F3}", name: "Vietnam" },
+  { code: "ID", dial: "+62", flag: "\u{1F1EE}\u{1F1E9}", name: "Indonesia" },
+  { code: "MY", dial: "+60", flag: "\u{1F1F2}\u{1F1FE}", name: "Malaysia" },
+  { code: "PK", dial: "+92", flag: "\u{1F1F5}\u{1F1F0}", name: "Pakistan" },
+  { code: "BD", dial: "+880", flag: "\u{1F1E7}\u{1F1E9}", name: "Bangladesh" },
+  { code: "TR", dial: "+90", flag: "\u{1F1F9}\u{1F1F7}", name: "Turkey" },
+  { code: "PL", dial: "+48", flag: "\u{1F1F5}\u{1F1F1}", name: "Poland" },
+  { code: "SE", dial: "+46", flag: "\u{1F1F8}\u{1F1EA}", name: "Sweden" },
+  { code: "NO", dial: "+47", flag: "\u{1F1F3}\u{1F1F4}", name: "Norway" },
+  { code: "DK", dial: "+45", flag: "\u{1F1E9}\u{1F1F0}", name: "Denmark" },
+  { code: "FI", dial: "+358", flag: "\u{1F1EB}\u{1F1EE}", name: "Finland" },
+  { code: "CH", dial: "+41", flag: "\u{1F1E8}\u{1F1ED}", name: "Switzerland" },
+  { code: "AT", dial: "+43", flag: "\u{1F1E6}\u{1F1F9}", name: "Austria" },
+  { code: "BE", dial: "+32", flag: "\u{1F1E7}\u{1F1EA}", name: "Belgium" },
+  { code: "PT", dial: "+351", flag: "\u{1F1F5}\u{1F1F9}", name: "Portugal" },
+  { code: "IE", dial: "+353", flag: "\u{1F1EE}\u{1F1EA}", name: "Ireland" },
+  { code: "NZ", dial: "+64", flag: "\u{1F1F3}\u{1F1FF}", name: "New Zealand" },
+  { code: "RO", dial: "+40", flag: "\u{1F1F7}\u{1F1F4}", name: "Romania" },
+  { code: "CZ", dial: "+420", flag: "\u{1F1E8}\u{1F1FF}", name: "Czech Republic" },
+  { code: "GR", dial: "+30", flag: "\u{1F1EC}\u{1F1F7}", name: "Greece" },
+  { code: "HU", dial: "+36", flag: "\u{1F1ED}\u{1F1FA}", name: "Hungary" },
+  { code: "UA", dial: "+380", flag: "\u{1F1FA}\u{1F1E6}", name: "Ukraine" },
+  { code: "RU", dial: "+7", flag: "\u{1F1F7}\u{1F1FA}", name: "Russia" },
+  { code: "TW", dial: "+886", flag: "\u{1F1F9}\u{1F1FC}", name: "Taiwan" },
+  { code: "HK", dial: "+852", flag: "\u{1F1ED}\u{1F1F0}", name: "Hong Kong" },
+  { code: "CR", dial: "+506", flag: "\u{1F1E8}\u{1F1F7}", name: "Costa Rica" },
+  { code: "PA", dial: "+507", flag: "\u{1F1F5}\u{1F1E6}", name: "Panama" },
+  { code: "DO", dial: "+1", flag: "\u{1F1E9}\u{1F1F4}", name: "Dominican Republic" },
+  { code: "PR", dial: "+1", flag: "\u{1F1F5}\u{1F1F7}", name: "Puerto Rico" },
+];
+
+// Detect country from timezone
+function detectCountryFromTimezone(tz: string): string {
+  const tzCountryMap: Record<string, string> = {
+    "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US",
+    "America/Los_Angeles": "US", "America/Anchorage": "US", "Pacific/Honolulu": "US",
+    "Europe/London": "GB", "Europe/Paris": "FR", "Europe/Berlin": "DE",
+    "Europe/Madrid": "ES", "Europe/Rome": "IT", "Europe/Amsterdam": "NL",
+    "America/Toronto": "CA", "America/Vancouver": "CA",
+    "Australia/Sydney": "AU", "Australia/Melbourne": "AU",
+    "America/Sao_Paulo": "BR", "America/Mexico_City": "MX",
+    "America/Argentina/Buenos_Aires": "AR", "America/Bogota": "CO",
+    "Asia/Kolkata": "IN", "Asia/Tokyo": "JP", "Asia/Seoul": "KR",
+    "Asia/Shanghai": "CN", "Asia/Singapore": "SG", "Asia/Dubai": "AE",
+    "Asia/Jerusalem": "IL", "Africa/Johannesburg": "ZA",
+    "Pacific/Auckland": "NZ", "Europe/Istanbul": "TR",
+  };
+  return tzCountryMap[tz] || "US";
+}
+
 // Pre-defined business/sales meeting topics (no AI tokens needed)
 const TOPIC_SUGGESTIONS = [
   "Product Demo",
@@ -105,9 +186,64 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
   // Form
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState(() => {
+    const tz = typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/New_York";
+    const code = detectCountryFromTimezone(tz);
+    return COUNTRIES.find((c) => c.code === code) || COUNTRIES[0];
+  });
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [countrySearch, setCountrySearch] = useState("");
+  const countryPickerRef = useRef<HTMLDivElement>(null);
+  const countrySearchRef = useRef<HTMLInputElement>(null);
   const [topic, setTopic] = useState("");
   const [notes, setNotes] = useState("");
   const [showTopicSuggestions, setShowTopicSuggestions] = useState(false);
+
+  // Close country picker on click outside
+  useEffect(() => {
+    if (!showCountryPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      if (countryPickerRef.current && !countryPickerRef.current.contains(e.target as Node)) {
+        setShowCountryPicker(false);
+        setCountrySearch("");
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showCountryPicker]);
+
+  // Auto-focus search when country picker opens
+  useEffect(() => {
+    if (showCountryPicker && countrySearchRef.current) {
+      countrySearchRef.current.focus();
+    }
+  }, [showCountryPicker]);
+
+  // Memoize filtered countries
+  const filteredCountries = useMemo(() => {
+    if (!countrySearch.trim()) return COUNTRIES;
+    const lower = countrySearch.toLowerCase();
+    return COUNTRIES.filter(
+      (c) => c.name.toLowerCase().includes(lower) || c.dial.includes(lower) || c.code.toLowerCase().includes(lower)
+    );
+  }, [countrySearch]);
+
+  // Format phone for display (US: (xxx) xxx-xxxx)
+  const formatPhoneDisplay = (val: string) => {
+    const digits = val.replace(/\D/g, "");
+    if (selectedCountry.code === "US" || selectedCountry.code === "CA" || (selectedCountry.dial === "+1")) {
+      if (digits.length <= 3) return digits;
+      if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+    }
+    return digits;
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, "").slice(0, 15);
+    setPhone(raw);
+  };
 
   // Memoize filtered topics
   const filteredTopics = useMemo(() => {
@@ -166,8 +302,10 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
   }, [selectedDate, slug, timezone]);
 
   const handleBook = async () => {
-    if (!selectedSlot || !name || !email) return;
+    if (!selectedSlot || !name || !email || !phone) return;
     setBooking(true);
+
+    const fullPhone = `${selectedCountry.dial}${phone}`;
 
     try {
       const res = await fetch("/api/book", {
@@ -179,6 +317,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
           timezone,
           name,
           email,
+          phone: fullPhone,
           notes: [topic && `Topic: ${topic}`, notes].filter(Boolean).join("\n") || undefined,
         }),
       });
@@ -471,8 +610,79 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                 />
               </div>
 
+              {/* Phone Number with Country Picker */}
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.12s" }}>
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                  Phone Number *
+                </label>
+                <div className="flex gap-0">
+                  {/* Country selector */}
+                  <div className="relative" ref={countryPickerRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCountryPicker(!showCountryPicker);
+                        setCountrySearch("");
+                      }}
+                      className="flex items-center gap-1 px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-l-lg border border-r-0 border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors text-sm sm:text-base whitespace-nowrap"
+                    >
+                      <span className="text-base sm:text-lg leading-none">{selectedCountry.flag}</span>
+                      <span className="text-gray-600 text-xs sm:text-sm font-medium">{selectedCountry.dial}</span>
+                      <ChevronRight className={`w-3 h-3 text-gray-400 transition-transform ${showCountryPicker ? "rotate-90" : ""}`} />
+                    </button>
+
+                    {/* Country dropdown */}
+                    {showCountryPicker && (
+                      <div className="absolute top-full left-0 mt-1 w-64 sm:w-72 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden animate-fade-in">
+                        <div className="p-2 border-b border-gray-100">
+                          <input
+                            ref={countrySearchRef}
+                            type="text"
+                            value={countrySearch}
+                            onChange={(e) => setCountrySearch(e.target.value)}
+                            placeholder="Search country..."
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm"
+                          />
+                        </div>
+                        <div className="max-h-48 overflow-y-auto">
+                          {filteredCountries.map((c) => (
+                            <button
+                              key={c.code + c.dial}
+                              onClick={() => {
+                                setSelectedCountry(c);
+                                setShowCountryPicker(false);
+                                setCountrySearch("");
+                              }}
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors flex items-center gap-2.5 ${
+                                selectedCountry.code === c.code && selectedCountry.dial === c.dial ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"
+                              }`}
+                            >
+                              <span className="text-base leading-none">{c.flag}</span>
+                              <span className="flex-1">{c.name}</span>
+                              <span className="text-xs text-gray-500">{c.dial}</span>
+                            </button>
+                          ))}
+                          {filteredCountries.length === 0 && (
+                            <div className="px-3 py-4 text-sm text-gray-400 text-center">No countries found</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Phone input */}
+                  <input
+                    type="tel"
+                    value={formatPhoneDisplay(phone)}
+                    onChange={handlePhoneChange}
+                    placeholder={selectedCountry.code === "US" || selectedCountry.dial === "+1" ? "(555) 123-4567" : "Phone number"}
+                    className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 rounded-r-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm sm:text-base"
+                  />
+                </div>
+              </div>
+
               {/* Topic with AI suggestions */}
-              <div className="animate-fade-in-up relative" style={{ animationDelay: "0.15s" }}>
+              <div className="animate-fade-in-up relative" style={{ animationDelay: "0.18s" }}>
                 <label className="flex items-center gap-1.5 text-xs sm:text-sm font-medium text-gray-700 mb-1">
                   Meeting Topic
                   <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />
@@ -517,7 +727,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                 )}
               </div>
 
-              <div className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.24s" }}>
                 <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                   Notes (optional)
                 </label>
@@ -532,13 +742,13 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
 
               <button
                 onClick={handleBook}
-                disabled={!name || !email || booking}
+                disabled={!name || !email || !phone || booking}
                 className={`w-full py-2.5 sm:py-3 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-sm sm:text-base animate-fade-in-up ${
-                  !booking && name && email ? "hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]" : ""
+                  !booking && name && email && phone ? "hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]" : ""
                 }`}
                 style={{
-                  animationDelay: "0.25s",
-                  backgroundColor: !name || !email || booking ? undefined : settings.primary_color,
+                  animationDelay: "0.3s",
+                  backgroundColor: !name || !email || !phone || booking ? undefined : settings.primary_color,
                 }}
               >
                 {booking ? (
