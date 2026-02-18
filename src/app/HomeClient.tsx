@@ -67,7 +67,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
         </Link>
         <Link
           href="/embed"
-          className="text-xs text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all animate-fade-in"
+          className="text-xs text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all animate-fade-in"
         >
           <Code2 className="w-3 h-3" />
           Embed
@@ -99,7 +99,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
                   <div className="text-[13px] font-semibold text-gray-900 leading-tight truncate">
                     {et.title}
                   </div>
-                  <div className="text-[11px] text-gray-400 mt-0.5 truncate">
+                  <div className="text-[11px] text-gray-500 mt-0.5 truncate">
                     {et.duration_minutes} min
                   </div>
                 </div>
@@ -123,7 +123,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
                 loading="lazy"
               />
             ) : (
-              <div className="flex items-center justify-center h-[480px] text-gray-300 text-sm">
+              <div className="flex items-center justify-center h-[480px] text-gray-400 text-sm">
                 Select a meeting type
               </div>
             )}
@@ -137,7 +137,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
           {mobileStep === "pick" && (
             <div className="animate-fade-in-up">
               <h1 className="text-2xl font-bold text-gray-900 mb-1">Book a meeting</h1>
-              <p className="text-base text-gray-400 mb-5">
+              <p className="text-base text-gray-500 mb-5">
                 Choose a meeting type to get started.
               </p>
 
@@ -160,12 +160,12 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
                       <div className="text-base font-semibold text-gray-900 leading-tight">
                         {et.title}
                       </div>
-                      <div className="text-sm text-gray-400 mt-1 flex items-center gap-1.5">
+                      <div className="text-sm text-gray-500 mt-1 flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5" />
                         {et.duration_minutes} minutes
                       </div>
                     </div>
-                    <ChevronRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
                   </button>
                 ))}
               </div>
@@ -177,7 +177,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
             <div className="animate-fade-in-up">
               <button
                 onClick={() => setMobileStep("pick")}
-                className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1 mb-3 transition-colors"
+                className="text-sm text-gray-500 hover:text-gray-600 flex items-center gap-1 mb-3 transition-colors"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Back to meeting types
@@ -190,7 +190,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
                     style={{ backgroundColor: activeType.color }}
                   />
                   <span className="text-lg font-bold text-gray-900">{activeType.title}</span>
-                  <span className="text-sm text-gray-400 flex items-center gap-1">
+                  <span className="text-sm text-gray-500 flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5" />
                     {activeType.duration_minutes} min
                   </span>
@@ -217,7 +217,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
       </main>
 
       {/* ── Footer ── */}
-      <footer className="max-w-[880px] mx-auto flex flex-col items-center gap-2 px-4 py-3 sm:py-4 text-[11px] text-gray-400 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+      <footer className="max-w-[880px] mx-auto flex flex-col items-center gap-2 px-4 py-3 sm:py-4 text-[11px] text-gray-500 animate-fade-in" style={{ animationDelay: "0.3s" }}>
         <div className="flex items-center gap-2.5">
         <span>Round-robin across</span>
         {teamMembers.map((m, i) => (

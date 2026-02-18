@@ -205,7 +205,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
           {!isEmbed && (
             <Link
               href="/"
-              className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600 mb-3 sm:mb-4 transition-colors"
+              className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-600 mb-3 sm:mb-4 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
               Back
@@ -268,7 +268,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                   }`}
                 >
                   <span>{tz.label}</span>
-                  <span className="text-xs text-gray-400">{tz.value.replace(/_/g, " ")}</span>
+                  <span className="text-xs text-gray-500">{tz.value.replace(/_/g, " ")}</span>
                 </button>
               ))}
             </div>
@@ -398,7 +398,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                     ))}
                   </div>
                 ) : slots.length === 0 ? (
-                  <div className="text-center py-8 sm:py-12 text-gray-400 animate-fade-in text-sm sm:text-base">
+                  <div className="text-center py-8 sm:py-12 text-gray-500 animate-fade-in text-sm sm:text-base">
                     No available times on this day.
                   </div>
                 ) : (
@@ -427,7 +427,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
           <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6 animate-slide-in-right">
             <button
               onClick={() => setStep("time")}
-              className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600 mb-3 sm:mb-4 transition-colors"
+              className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-600 mb-3 sm:mb-4 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
               Change time
@@ -492,7 +492,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                   {topic && (
                     <button
                       onClick={() => { setTopic(""); setShowTopicSuggestions(false); }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600 transition-colors"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -559,7 +559,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
 
         {/* Powered by */}
         <div className="mt-4 sm:mt-6 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
-          <span className="text-[10px] sm:text-xs text-gray-400">
+          <span className="text-[10px] sm:text-xs text-gray-500">
             Powered by{" "}
             <span className="font-semibold text-gray-500">{settings.company_name}</span>
           </span>

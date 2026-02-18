@@ -6,6 +6,19 @@ import { notFound } from "next/navigation";
 // ISR: revalidate every 60 seconds
 export const revalidate = 60;
 
+// Pre-render known booking pages at build time → served from CDN, zero cold start
+export async function generateStaticParams() {
+  try {
+    const { data } = await supabaseAdmin
+      .from("event_types")
+      .select("slug")
+      .eq("is_active", true);
+    return (data || []).map((et) => ({ slug: et.slug }));
+  } catch {
+    return [];
+  }
+}
+
 const DEFAULT_SETTINGS: SiteSettings = {
   company_name: "Slotly",
   logo_url: null,
