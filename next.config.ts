@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Enable gzip/brotli compression
+  compress: true,
+
+  // Optimize production builds
+  reactStrictMode: true,
+
+  // Reduce JS bundle size by excluding server-only packages from client
+  serverExternalPackages: ["googleapis", "@sendgrid/mail", "resend"],
+
   async headers() {
     return [
       {
@@ -15,6 +24,13 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Cache static assets aggressively (JS/CSS/fonts have content hashes)
+        source: "/_next/static/(.*)",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
         // Allow the booking pages to be embedded in iframes
         source: "/book/:path*",
         headers: [
@@ -23,11 +39,11 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Allow the embed script to be loaded cross-origin
+        // Allow the embed script to be loaded cross-origin, cache for 1 day
         source: "/embed.js",
         headers: [
           { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Cache-Control", value: "public, max-age=3600" },
+          { key: "Cache-Control", value: "public, max-age=86400, s-maxage=86400" },
         ],
       },
       {
