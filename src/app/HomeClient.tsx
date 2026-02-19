@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Zap, Code2, Clock, ArrowLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import type { EventType, SiteSettings } from "@/lib/types";
+import type { EventType, SiteSettings, Team } from "@/lib/types";
 
 const NAME_EMOJIS: Record<string, string> = {
   alberto: "\u{1F468}\u{200D}\u{1F4BC}",
@@ -24,13 +24,19 @@ function getEmojiForName(name: string, index: number): string {
   return NAME_EMOJIS[first] || FALLBACK_EMOJIS[index % FALLBACK_EMOJIS.length];
 }
 
-interface HomeClientProps {
-  eventTypes: EventType[];
-  teamMembers: { id: string; name: string }[];
-  settings: SiteSettings;
+// Extended EventType with team_slug from server
+interface EventTypeWithTeam extends EventType {
+  team_slug?: string;
 }
 
-export default function HomeClient({ eventTypes, teamMembers, settings }: HomeClientProps) {
+interface HomeClientProps {
+  eventTypes: EventTypeWithTeam[];
+  teamMembers: { id: string; name: string }[];
+  settings: SiteSettings;
+  teams?: (Team & { event_types: any[] })[];
+}
+
+export default function HomeClient({ eventTypes, teamMembers, settings, teams }: HomeClientProps) {
   const [activeSlug, setActiveSlug] = useState<string | null>(
     eventTypes.length > 0 ? eventTypes[0].slug : null
   );
@@ -116,7 +122,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
             {activeSlug ? (
               <iframe
                 key={activeSlug}
-                src={`/book/${activeSlug}`}
+                src={`/book/${activeType?.team_slug || 'default'}/${activeSlug}`}
                 className="w-full border-none block"
                 style={{ height: "480px" }}
                 title={`Book ${activeType?.title || "a meeting"}`}
@@ -204,7 +210,7 @@ export default function HomeClient({ eventTypes, teamMembers, settings }: HomeCl
                 </div>
                 <iframe
                   key={activeSlug}
-                  src={`/book/${activeSlug}`}
+                  src={`/book/${activeType?.team_slug || 'default'}/${activeSlug}`}
                   className="w-full border-none block"
                   style={{ height: "520px" }}
                   title={`Book ${activeType?.title || "a meeting"}`}

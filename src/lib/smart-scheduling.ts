@@ -29,13 +29,14 @@ const DEFAULT_POPULAR_DAYS = new Set([2, 3, 4]); // Tue, Wed, Thu
  */
 export async function getSmartSchedulingData(
   date: string, // YYYY-MM-DD
-  timezone: string
+  timezone: string,
+  teamId?: string
 ): Promise<Map<number, SmartTimeSlot>> {
   const targetDay = new Date(date + "T12:00:00Z").getDay(); // 0=Sun
   const result = new Map<number, SmartTimeSlot>();
 
-  // Try to pull real data
-  const realData = await getBookingHeatmap();
+  // Try to pull real data (scoped to team if provided)
+  const realData = await getBookingHeatmap(teamId);
 
   if (realData) {
     // We have enough data — use it
@@ -95,17 +96,31 @@ interface BookingHeatmap {
   totalBookings: number;
 }
 
-async function getBookingHeatmap(): Promise<BookingHeatmap | null> {
+async function getBookingHeatmap(teamId?: string): Promise<BookingHeatmap | null> {
   try {
     // Pull last 90 days of completed/confirmed bookings
     const since = new Date();
     since.setDate(since.getDate() - 90);
 
-    const { data: bookings, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("bookings")
-      .select("start_time, status")
+      .select("start_time, status, event_type_id")
       .in("status", ["confirmed", "completed"])
       .gte("created_at", since.toISOString());
+
+    // Scope to team's event types if teamId provided
+    if (teamId) {
+      const { data: teamEventTypes } = await supabaseAdmin
+        .from("event_types")
+        .select("id")
+        .eq("team_id", teamId);
+
+      if (teamEventTypes && teamEventTypes.length > 0) {
+        query = query.in("event_type_id", teamEventTypes.map((et) => et.id));
+      }
+    }
+
+    const { data: bookings, error } = await query;
 
     if (error || !bookings || bookings.length < MIN_BOOKINGS_FOR_INTELLIGENCE) {
       return null;
@@ -134,7 +149,7 @@ async function getBookingHeatmap(): Promise<BookingHeatmap | null> {
 /**
  * Get the best time recommendations as a simple summary for the admin dashboard.
  */
-export async function getSmartSchedulingSummary(): Promise<{
+export async function getSmartSchedulingSummary(teamId?: string): Promise<{
   bestDays: string[];
   bestHours: string[];
   dataSource: "real" | "defaults";
@@ -142,7 +157,7 @@ export async function getSmartSchedulingSummary(): Promise<{
 }> {
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  const heatmap = await getBookingHeatmap();
+  const heatmap = await getBookingHeatmap(teamId);
 
   if (!heatmap) {
     return {

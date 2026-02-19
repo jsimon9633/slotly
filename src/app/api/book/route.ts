@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { eventTypeSlug, startTime, timezone, name, email, phone, notes } = body;
+  const { eventTypeSlug, teamSlug, startTime, timezone, name, email, phone, notes } = body;
 
   // Validate required fields
   if (!eventTypeSlug || !startTime || !timezone || !name || !email || !phone) {
@@ -125,17 +125,44 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Get event type — only needed fields
-    const { data: eventType, error: etError } = await supabaseAdmin
+    // Resolve team if teamSlug provided
+    let teamId: string | undefined;
+    if (teamSlug && typeof teamSlug === "string") {
+      if (!/^[a-z0-9-]+$/.test(teamSlug)) {
+        return badRequest("Invalid team");
+      }
+      const { data: team } = await supabaseAdmin
+        .from("teams")
+        .select("id")
+        .eq("slug", teamSlug)
+        .eq("is_active", true)
+        .single();
+
+      if (!team) {
+        return notFound("Team");
+      }
+      teamId = team.id;
+    }
+
+    // Get event type — scope to team if provided
+    let etQuery = supabaseAdmin
       .from("event_types")
-      .select("id, title, duration_minutes, max_daily_bookings")
+      .select("id, title, duration_minutes, max_daily_bookings, team_id")
       .eq("slug", eventTypeSlug)
-      .eq("is_active", true)
-      .single();
+      .eq("is_active", true);
+
+    if (teamId) {
+      etQuery = etQuery.eq("team_id", teamId);
+    }
+
+    const { data: eventType, error: etError } = await etQuery.single();
 
     if (etError || !eventType) {
       return notFound("Event type");
     }
+
+    // Use the resolved team_id for round-robin scoping
+    const resolvedTeamId = teamId || eventType.team_id;
 
     // Daily meeting limit check
     if (eventType.max_daily_bookings && eventType.max_daily_bookings > 0) {
@@ -165,19 +192,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Round-robin: pick the team member who was booked least recently
-    const { data: teamMember, error: tmError } = await supabaseAdmin
-      .from("team_members")
-      .select("id, name, email, google_calendar_id")
-      .eq("is_active", true)
-      .order("last_booked_at", { ascending: true })
-      .limit(1)
-      .single();
+    // Round-robin: pick the team member who was booked least recently (scoped to team)
+    const { getNextTeamMember } = await import("@/lib/availability");
+    const teamMember = await getNextTeamMember(resolvedTeamId);
 
-    if (tmError || !teamMember) {
+    if (!teamMember) {
       return serverError(
         "No team members available to take this booking.",
-        tmError,
+        null,
         "Team member lookup"
       );
     }

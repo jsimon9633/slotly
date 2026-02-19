@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import type { EventType, SiteSettings } from "@/lib/types";
+import type { EventType, SiteSettings, Team } from "@/lib/types";
 import HomeClient from "./HomeClient";
 
 // Default settings fallback
@@ -13,16 +13,31 @@ const DEFAULT_SETTINGS: SiteSettings = {
 // ISR: revalidate every 60 seconds so data stays fresh without rebuilds
 export const revalidate = 60;
 
-async function getEventTypes(): Promise<EventType[]> {
+interface TeamWithEventTypes extends Team {
+  event_types: Pick<EventType, "id" | "slug" | "title" | "description" | "duration_minutes" | "color">[];
+}
+
+async function getTeamsWithEventTypes(): Promise<TeamWithEventTypes[]> {
   try {
-    const { data } = await supabaseAdmin
+    const { data: teams } = await supabaseAdmin
+      .from("teams")
+      .select("id, name, slug, description, is_active, created_at")
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+
+    if (!teams || teams.length === 0) return [];
+
+    // Fetch event types for all teams
+    const { data: eventTypes } = await supabaseAdmin
       .from("event_types")
-      .select(
-        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days"
-      )
+      .select("id, slug, title, description, duration_minutes, color, team_id")
       .eq("is_active", true)
       .order("duration_minutes", { ascending: true });
-    return data || [];
+
+    return teams.map((team) => ({
+      ...team,
+      event_types: (eventTypes || []).filter((et: any) => et.team_id === team.id),
+    }));
   } catch {
     return [];
   }
@@ -58,17 +73,35 @@ async function getSettings(): Promise<SiteSettings> {
 }
 
 export default async function Home() {
-  const [eventTypes, teamMembers, settings] = await Promise.all([
-    getEventTypes(),
+  const [teams, teamMembers, settings] = await Promise.all([
+    getTeamsWithEventTypes(),
     getTeamMembers(),
     getSettings(),
   ]);
 
+  // Flatten event types for backward compat with HomeClient
+  // (include team_id so HomeClient can build team-scoped URLs)
+  const allEventTypes = teams.flatMap((team) =>
+    team.event_types.map((et) => ({
+      ...et,
+      team_id: team.id,
+      team_slug: team.slug,
+      is_active: true,
+      is_locked: false,
+      before_buffer_mins: 0,
+      after_buffer_mins: 0,
+      min_notice_hours: 0,
+      max_daily_bookings: null,
+      max_advance_days: 10,
+    }))
+  );
+
   return (
     <HomeClient
-      eventTypes={eventTypes}
+      eventTypes={allEventTypes as any}
       teamMembers={teamMembers}
       settings={settings}
+      teams={teams}
     />
   );
 }
