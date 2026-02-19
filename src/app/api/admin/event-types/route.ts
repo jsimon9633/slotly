@@ -12,10 +12,19 @@ export async function GET(request: NextRequest) {
     return unauthorized();
   }
 
-  const { data, error } = await supabaseAdmin
+  // Optional team filter
+  const teamId = url.searchParams.get("teamId");
+
+  let query = supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
+    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id")
     .order("title");
+
+  if (teamId) {
+    query = query.eq("team_id", teamId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return serverError("Failed to load event types.", error, "Admin event-types GET");

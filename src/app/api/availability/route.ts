@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date"); // YYYY-MM-DD
   const eventTypeSlug = searchParams.get("eventType");
+  const teamSlug = searchParams.get("teamSlug"); // optional — scopes to team
   const timezone = searchParams.get("timezone") || "America/New_York";
 
   if (!date || !eventTypeSlug) {
@@ -43,13 +44,38 @@ export async function GET(request: NextRequest) {
     return badRequest("Invalid event type");
   }
 
+  // Look up team if teamSlug provided
+  let teamId: string | undefined;
+  if (teamSlug) {
+    if (!/^[a-z0-9-]+$/.test(teamSlug)) {
+      return badRequest("Invalid team slug");
+    }
+    const { data: team } = await supabaseAdmin
+      .from("teams")
+      .select("id")
+      .eq("slug", teamSlug)
+      .eq("is_active", true)
+      .single();
+
+    if (!team) {
+      return notFound("Team");
+    }
+    teamId = team.id;
+  }
+
   // Look up event type — only fetch needed fields
-  const { data: eventType, error: etError } = await supabaseAdmin
+  let etQuery = supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
+    .select("id, slug, title, duration_minutes, color, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id")
     .eq("slug", eventTypeSlug)
-    .eq("is_active", true)
-    .single();
+    .eq("is_active", true);
+
+  // Scope to team if provided
+  if (teamId) {
+    etQuery = etQuery.eq("team_id", teamId);
+  }
+
+  const { data: eventType, error: etError } = await etQuery.single();
 
   if (etError) {
     if (etError.code === "PGRST116") {
@@ -61,6 +87,9 @@ export async function GET(request: NextRequest) {
   if (!eventType) {
     return notFound("Event type");
   }
+
+  // Use the event type's team_id for scoping (even if no teamSlug was provided)
+  const resolvedTeamId = teamId || eventType.team_id;
 
   // Enforce max advance days — reject requests for dates too far out
   const maxAdvanceDays = eventType.max_advance_days || 10;
@@ -80,11 +109,12 @@ export async function GET(request: NextRequest) {
         beforeBufferMins: eventType.before_buffer_mins || 0,
         afterBufferMins: eventType.after_buffer_mins || 0,
         minNoticeHours: eventType.min_notice_hours || 0,
-      }
+      },
+      resolvedTeamId
     );
 
-    // Get smart scheduling recommendations for this date
-    const smartData = await getSmartSchedulingData(date, timezone);
+    // Get smart scheduling recommendations for this date (scoped to team)
+    const smartData = await getSmartSchedulingData(date, timezone, resolvedTeamId);
 
     // Strip internal member IDs + annotate with smart labels
     const slots = rawSlots.map(({ start, end }) => {

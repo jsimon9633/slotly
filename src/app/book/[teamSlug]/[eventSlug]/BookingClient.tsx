@@ -165,9 +165,11 @@ interface BookingClientProps {
   eventType: EventType;
   settings: SiteSettings;
   slug: string;
+  teamSlug: string;
+  teamName: string;
 }
 
-export default function BookingClient({ eventType, settings, slug }: BookingClientProps) {
+export default function BookingClient({ eventType, settings, slug, teamSlug, teamName }: BookingClientProps) {
   const isEmbed = useIsEmbed();
   const dateScrollRef = useRef<HTMLDivElement>(null);
 
@@ -302,7 +304,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
 
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     fetch(
-      `/api/availability?date=${dateStr}&eventType=${slug}&timezone=${encodeURIComponent(timezone)}`
+      `/api/availability?date=${dateStr}&eventType=${slug}&teamSlug=${teamSlug}&timezone=${encodeURIComponent(timezone)}`
     )
       .then((r) => r.json())
       .then((data) => {
@@ -310,7 +312,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
         setLoadingSlots(false);
       })
       .catch(() => setLoadingSlots(false));
-  }, [selectedDate, slug, timezone]);
+  }, [selectedDate, slug, teamSlug, timezone]);
 
   const handleBook = async () => {
     if (!selectedSlot || !name || !email || !phone) return;
@@ -324,6 +326,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventTypeSlug: slug,
+          teamSlug,
           startTime: selectedSlot.start,
           timezone,
           name,

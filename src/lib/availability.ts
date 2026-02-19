@@ -23,14 +23,41 @@ export interface SchedulingConstraints {
 }
 
 /**
- * Get the next team member in round-robin order
+ * Get the next team member in round-robin order, scoped to a team.
+ * If teamId is provided, only members who belong to that team are considered.
  */
-export async function getNextTeamMember(): Promise<{
+export async function getNextTeamMember(teamId?: string): Promise<{
   id: string;
   name: string;
   email: string;
   google_calendar_id: string;
 } | null> {
+  if (teamId) {
+    // Join through team_memberships to scope to team
+    const { data: memberships, error: mErr } = await supabaseAdmin
+      .from("team_memberships")
+      .select("team_member_id")
+      .eq("team_id", teamId)
+      .eq("is_active", true);
+
+    if (mErr || !memberships || memberships.length === 0) return null;
+
+    const memberIds = memberships.map((m) => m.team_member_id);
+
+    const { data, error } = await supabaseAdmin
+      .from("team_members")
+      .select("id, name, email, google_calendar_id")
+      .eq("is_active", true)
+      .in("id", memberIds)
+      .order("last_booked_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data;
+  }
+
+  // Fallback: all active members (legacy behavior)
   const { data, error } = await supabaseAdmin
     .from("team_members")
     .select("id, name, email, google_calendar_id")
@@ -44,9 +71,30 @@ export async function getNextTeamMember(): Promise<{
 }
 
 /**
- * Get all active team members (for showing combined availability)
+ * Get all active team members, optionally scoped to a team.
  */
-export async function getAllTeamMembers() {
+export async function getAllTeamMembers(teamId?: string) {
+  if (teamId) {
+    const { data: memberships } = await supabaseAdmin
+      .from("team_memberships")
+      .select("team_member_id")
+      .eq("team_id", teamId)
+      .eq("is_active", true);
+
+    if (!memberships || memberships.length === 0) return [];
+
+    const memberIds = memberships.map((m) => m.team_member_id);
+
+    const { data } = await supabaseAdmin
+      .from("team_members")
+      .select("id, name, google_calendar_id")
+      .eq("is_active", true)
+      .in("id", memberIds)
+      .order("last_booked_at", { ascending: true });
+
+    return data || [];
+  }
+
   const { data } = await supabaseAdmin
     .from("team_members")
     .select("id, name, google_calendar_id")
@@ -165,9 +213,10 @@ export async function getCombinedAvailability(
   dateStr: string,
   durationMinutes: number,
   timezone: string,
-  constraints: SchedulingConstraints = { beforeBufferMins: 0, afterBufferMins: 0, minNoticeHours: 0 }
+  constraints: SchedulingConstraints = { beforeBufferMins: 0, afterBufferMins: 0, minNoticeHours: 0 },
+  teamId?: string
 ): Promise<(TimeSlot & { available_member_ids: string[] })[]> {
-  const members = await getAllTeamMembers();
+  const members = await getAllTeamMembers(teamId);
   if (members.length === 0) return [];
 
   // Get slots for each member

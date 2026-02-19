@@ -1,3 +1,21 @@
+export interface Team {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface TeamMembership {
+  id: string;
+  team_id: string;
+  team_member_id: string;
+  role: "admin" | "member";
+  is_active: boolean;
+  joined_at: string;
+}
+
 export interface TeamMember {
   id: string;
   name: string;
@@ -21,6 +39,7 @@ export interface EventType {
   min_notice_hours: number;
   max_daily_bookings: number | null;
   max_advance_days: number;
+  team_id: string;
 }
 
 export interface Webhook {
