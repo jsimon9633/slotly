@@ -48,7 +48,7 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days } = body;
+  const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing event type id");
@@ -103,6 +103,16 @@ export async function PATCH(request: NextRequest) {
       return badRequest("Advance days must be 2-30");
     }
     updates.max_advance_days = val;
+  }
+
+  if (team_id !== undefined) {
+    if (team_id === null || team_id === "" || team_id === "null") {
+      updates.team_id = null;
+    } else if (typeof team_id === "string") {
+      updates.team_id = team_id;
+    } else {
+      return badRequest("Invalid team_id");
+    }
   }
 
   if (Object.keys(updates).length === 0) {
