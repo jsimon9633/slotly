@@ -1,11 +1,21 @@
 /**
  * Slotly Embed Widget
  * Usage:
- *   <div id="slotly-widget" data-slug="call"></div>
+ *   <!-- Embed all events for a team -->
+ *   <div id="slotly-widget" data-team="sales"></div>
+ *   <script src="https://YOUR_DOMAIN/embed.js"></script>
+ *
+ *   <!-- Embed a specific event type within a team -->
+ *   <div id="slotly-widget" data-team="sales" data-slug="intro-call"></div>
+ *   <script src="https://YOUR_DOMAIN/embed.js"></script>
+ *
+ *   <!-- Embed a specific event type (legacy, no team) -->
+ *   <div id="slotly-widget" data-slug="intro-call"></div>
  *   <script src="https://YOUR_DOMAIN/embed.js"></script>
  *
  * Options (data attributes on the container):
- *   data-slug     – event type slug (required, e.g. "intro", "call", "deep-dive")
+ *   data-team     – team slug (e.g. "sales", "engineering")
+ *   data-slug     – event type slug (e.g. "intro", "call", "deep-dive")
  *   data-width    – widget width (default: "100%")
  *   data-height   – widget height (default: "620px")
  */
@@ -24,13 +34,30 @@
   if (containers.length === 0) return;
 
   containers.forEach(function (container) {
-    var slug = container.getAttribute("data-slug") || "call";
+    var team = container.getAttribute("data-team") || "";
+    var slug = container.getAttribute("data-slug") || "";
     var width = container.getAttribute("data-width") || "100%";
     var height = container.getAttribute("data-height") || "620px";
 
+    // Build the URL based on which attributes are provided
+    var path;
+    if (team && slug) {
+      // Specific event type within a team
+      path = "/book/" + team + "/" + slug;
+    } else if (team) {
+      // All events for a team
+      path = "/book/" + team;
+    } else if (slug) {
+      // Legacy: just event slug (backward compatible)
+      path = "/book/" + slug;
+    } else {
+      // Fallback: show main booking page
+      path = "/";
+    }
+
     // Create iframe
     var iframe = document.createElement("iframe");
-    iframe.src = baseUrl + "/book/" + slug;
+    iframe.src = baseUrl + path;
     iframe.style.width = width;
     iframe.style.height = height;
     iframe.style.border = "none";
