@@ -20,8 +20,23 @@ import {
   Calendar,
   Trash2,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  ListChecks,
+  ToggleLeft,
+  ToggleRight,
+  GripVertical,
 } from "lucide-react";
 import Link from "next/link";
+
+interface BookingQuestion {
+  id: string;
+  type: "text" | "dropdown" | "checkbox";
+  label: string;
+  required: boolean;
+  options?: string[];
+}
 
 interface EventTypeSettings {
   id: string;
@@ -36,6 +51,7 @@ interface EventTypeSettings {
   min_notice_hours: number;
   max_daily_bookings: number | null;
   max_advance_days: number;
+  booking_questions?: BookingQuestion[];
 }
 
 // Track pending edits per event type
@@ -76,6 +92,21 @@ export default function AdminSettingsPage() {
   // Delete event type state
   const [confirmDeleteETId, setConfirmDeleteETId] = useState<string | null>(null);
   const [deletingET, setDeletingET] = useState(false);
+
+  // Booking questions state
+  const [expandedQuestionsETId, setExpandedQuestionsETId] = useState<string | null>(null);
+  const [questionsEdits, setQuestionsEdits] = useState<Record<string, BookingQuestion[]>>({});
+  const [savingQuestionsId, setSavingQuestionsId] = useState<string | null>(null);
+  const [savedQuestionsId, setSavedQuestionsId] = useState<string | null>(null);
+
+  // SMS Beta state
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [twilioSid, setTwilioSid] = useState("");
+  const [twilioToken, setTwilioToken] = useState("");
+  const [twilioPhone, setTwilioPhone] = useState("");
+  const [smsLoading, setSmsLoading] = useState(true);
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsSaved, setSmsSaved] = useState(false);
 
   // Auth check
   useEffect(() => {
@@ -300,6 +331,141 @@ export default function AdminSettingsPage() {
     }
   };
 
+  // Booking questions helpers
+  const getQuestions = (etId: string): BookingQuestion[] => {
+    if (questionsEdits[etId]) return questionsEdits[etId];
+    const et = eventTypes.find((e) => e.id === etId);
+    return et?.booking_questions || [];
+  };
+
+  const setQuestions = (etId: string, qs: BookingQuestion[]) => {
+    setQuestionsEdits((prev) => ({ ...prev, [etId]: qs }));
+  };
+
+  const addQuestion = (etId: string, type: "text" | "dropdown" | "checkbox") => {
+    const qs = [...getQuestions(etId)];
+    qs.push({
+      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type,
+      label: "",
+      required: false,
+      options: type === "dropdown" ? ["Option 1"] : undefined,
+    });
+    setQuestions(etId, qs);
+  };
+
+  const updateQuestion = (etId: string, qId: string, updates: Partial<BookingQuestion>) => {
+    const qs = getQuestions(etId).map((q) => (q.id === qId ? { ...q, ...updates } : q));
+    setQuestions(etId, qs);
+  };
+
+  const removeQuestion = (etId: string, qId: string) => {
+    setQuestions(etId, getQuestions(etId).filter((q) => q.id !== qId));
+  };
+
+  const moveQuestion = (etId: string, qId: string, direction: "up" | "down") => {
+    const qs = [...getQuestions(etId)];
+    const idx = qs.findIndex((q) => q.id === qId);
+    if (idx < 0) return;
+    const newIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= qs.length) return;
+    [qs[idx], qs[newIdx]] = [qs[newIdx], qs[idx]];
+    setQuestions(etId, qs);
+  };
+
+  const handleSaveQuestions = async (etId: string) => {
+    const qs = getQuestions(etId);
+    // Validate labels
+    for (const q of qs) {
+      if (!q.label.trim()) {
+        setError("All questions must have a label.");
+        return;
+      }
+    }
+    setSavingQuestionsId(etId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: etId, booking_questions: qs }),
+      });
+      if (res.ok) {
+        setSavedQuestionsId(etId);
+        setTimeout(() => setSavedQuestionsId(null), 2500);
+        setQuestionsEdits((prev) => {
+          const next = { ...prev };
+          delete next[etId];
+          return next;
+        });
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to save questions.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setSavingQuestionsId(null);
+    }
+  };
+
+  const hasQuestionChanges = (etId: string): boolean => {
+    return !!questionsEdits[etId];
+  };
+
+  // Fetch SMS settings
+  const fetchSmsSettings = useCallback(async () => {
+    if (!token) return;
+    setSmsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&_sms=1`);
+      // We don't have a dedicated SMS endpoint — use site_settings via a small helper
+      // For now, fetch from the settings directly
+      const smsRes = await fetch(`/api/admin/sms-settings?token=${encodeURIComponent(token)}`);
+      if (smsRes.ok) {
+        const data = await smsRes.json();
+        setSmsEnabled(data.sms_enabled === "true");
+        setTwilioSid(data.twilio_account_sid || "");
+        setTwilioToken(data.twilio_auth_token || "");
+        setTwilioPhone(data.twilio_phone_number || "");
+      }
+    } catch {
+      // Silently fail — SMS section just shows defaults
+    } finally {
+      setSmsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (authenticated) fetchSmsSettings();
+  }, [authenticated, fetchSmsSettings]);
+
+  const handleSaveSms = async () => {
+    setSmsSaving(true);
+    setSmsSaved(false);
+    try {
+      const res = await fetch(`/api/admin/sms-settings?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sms_enabled: smsEnabled ? "true" : "false",
+          twilio_account_sid: twilioSid.trim(),
+          twilio_auth_token: twilioToken.trim(),
+          twilio_phone_number: twilioPhone.trim(),
+        }),
+      });
+      if (res.ok) {
+        setSmsSaved(true);
+        setTimeout(() => setSmsSaved(false), 2000);
+      }
+    } catch {
+      setError("Failed to save SMS settings.");
+    } finally {
+      setSmsSaving(false);
+    }
+  };
+
   // Auth gate
   if (!authenticated) {
     return (
@@ -399,6 +565,12 @@ export default function AdminSettingsPage() {
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
             Webhooks
+          </Link>
+          <Link
+            href="/admin/workflows"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Workflows
           </Link>
           <Link
             href="/admin/analytics"
@@ -715,6 +887,182 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
 
+                {/* Booking Questions Section */}
+                <div className="px-5 sm:px-6 pb-4">
+                  <button
+                    onClick={() => setExpandedQuestionsETId(expandedQuestionsETId === et.id ? null : et.id)}
+                    className="flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-gray-900 transition-colors w-full"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Booking Questions
+                    <span className="text-xs text-gray-400 font-normal ml-1">
+                      ({(getQuestions(et.id)).length})
+                    </span>
+                    <div className="flex-1" />
+                    {expandedQuestionsETId === et.id ? (
+                      <ChevronUp className="w-4 h-4 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    )}
+                  </button>
+
+                  {expandedQuestionsETId === et.id && (
+                    <div className="mt-3 space-y-3 animate-fade-in">
+                      {getQuestions(et.id).length === 0 ? (
+                        <p className="text-sm text-gray-400 py-2">No custom questions yet. Add one below.</p>
+                      ) : (
+                        getQuestions(et.id).map((q, qi) => (
+                          <div key={q.id} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                            <div className="flex items-start gap-2">
+                              {/* Reorder arrows */}
+                              <div className="flex flex-col gap-0.5 pt-1">
+                                <button
+                                  onClick={() => moveQuestion(et.id, q.id, "up")}
+                                  disabled={qi === 0}
+                                  className="text-gray-400 hover:text-gray-600 disabled:opacity-30 transition-colors"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => moveQuestion(et.id, q.id, "down")}
+                                  disabled={qi === getQuestions(et.id).length - 1}
+                                  className="text-gray-400 hover:text-gray-600 disabled:opacity-30 transition-colors"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              {/* Type badge */}
+                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full flex-shrink-0 mt-1.5 ${
+                                q.type === "text" ? "bg-blue-100 text-blue-700" :
+                                q.type === "dropdown" ? "bg-purple-100 text-purple-700" :
+                                "bg-green-100 text-green-700"
+                              }`}>
+                                {q.type}
+                              </span>
+
+                              {/* Label input */}
+                              <input
+                                type="text"
+                                value={q.label}
+                                onChange={(e) => updateQuestion(et.id, q.id, { label: e.target.value })}
+                                placeholder="Question label"
+                                className="flex-1 text-sm px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                              />
+
+                              {/* Required toggle */}
+                              <button
+                                onClick={() => updateQuestion(et.id, q.id, { required: !q.required })}
+                                title={q.required ? "Required — click to make optional" : "Optional — click to make required"}
+                                className={`flex-shrink-0 mt-1 ${q.required ? "text-amber-600" : "text-gray-300 hover:text-gray-500"} transition-colors`}
+                              >
+                                {q.required ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                              </button>
+                              <span className="text-[10px] mt-2 text-gray-400 flex-shrink-0 w-12">
+                                {q.required ? "Required" : "Optional"}
+                              </span>
+
+                              {/* Delete */}
+                              <button
+                                onClick={() => removeQuestion(et.id, q.id)}
+                                className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0 mt-1"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Dropdown options editor */}
+                            {q.type === "dropdown" && (
+                              <div className="ml-8 space-y-1.5">
+                                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Options</span>
+                                {(q.options || []).map((opt, oi) => (
+                                  <div key={oi} className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      value={opt}
+                                      onChange={(e) => {
+                                        const newOpts = [...(q.options || [])];
+                                        newOpts[oi] = e.target.value;
+                                        updateQuestion(et.id, q.id, { options: newOpts });
+                                      }}
+                                      className="flex-1 text-xs px-2.5 py-1.5 bg-white border border-gray-200 rounded-md focus:border-indigo-400 outline-none transition-all"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const newOpts = (q.options || []).filter((_, j) => j !== oi);
+                                        updateQuestion(et.id, q.id, { options: newOpts.length ? newOpts : ["Option 1"] });
+                                      }}
+                                      className="text-gray-400 hover:text-red-500 transition-colors"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                                <button
+                                  onClick={() => {
+                                    const newOpts = [...(q.options || []), `Option ${(q.options || []).length + 1}`];
+                                    updateQuestion(et.id, q.id, { options: newOpts });
+                                  }}
+                                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                                >
+                                  + Add option
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+
+                      {/* Add question buttons */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-xs text-gray-500 font-medium">Add:</span>
+                        <button
+                          onClick={() => addQuestion(et.id, "text")}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-medium transition-all"
+                        >
+                          Text
+                        </button>
+                        <button
+                          onClick={() => addQuestion(et.id, "dropdown")}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 font-medium transition-all"
+                        >
+                          Dropdown
+                        </button>
+                        <button
+                          onClick={() => addQuestion(et.id, "checkbox")}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 font-medium transition-all"
+                        >
+                          Checkbox
+                        </button>
+                      </div>
+
+                      {/* Save questions button */}
+                      {hasQuestionChanges(et.id) && (
+                        <div className="pt-2 animate-fade-in">
+                          <button
+                            onClick={() => handleSaveQuestions(et.id)}
+                            disabled={savingQuestionsId === et.id}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+                          >
+                            {savingQuestionsId === et.id ? (
+                              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...</>
+                            ) : savedQuestionsId === et.id ? (
+                              <><Check className="w-3.5 h-3.5" /> Saved!</>
+                            ) : (
+                              <><Save className="w-3.5 h-3.5" /> Save Questions</>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                      {savedQuestionsId === et.id && !hasQuestionChanges(et.id) && (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 animate-fade-in">
+                          <Check className="w-3.5 h-3.5" /> Questions saved
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Save button — only show when there are changes */}
                 {hasChanges(et) && (
                   <div className="px-5 sm:px-6 pb-5 animate-fade-in">
@@ -789,6 +1137,95 @@ export default function AdminSettingsPage() {
             ))}
           </div>
         )}
+
+        {/* SMS Beta section */}
+        <div className="mt-10 sm:mt-12 bg-white rounded-xl border-[1.5px] border-gray-100 p-5 sm:p-6 animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <MessageSquare className="w-5 h-5 text-indigo-500" />
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900">SMS Notifications</h2>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700">Beta</span>
+            </div>
+            <button
+              onClick={() => {
+                setSmsEnabled(!smsEnabled);
+              }}
+              className="flex items-center gap-2 text-sm font-medium transition-colors"
+            >
+              {smsEnabled ? (
+                <ToggleRight className="w-8 h-8 text-indigo-600" />
+              ) : (
+                <ToggleLeft className="w-8 h-8 text-gray-300" />
+              )}
+            </button>
+          </div>
+
+          {!smsEnabled ? (
+            <p className="text-sm text-gray-400">
+              Enable SMS to send text message reminders and workflow notifications to invitees. Requires a Twilio account.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-500">
+                Connect your Twilio account to send SMS notifications. Your credentials are stored securely and only used for sending messages.
+              </p>
+
+              {smsLoading ? (
+                <div className="flex items-center gap-2 py-4 text-sm text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading SMS settings...
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Account SID</label>
+                    <input
+                      type="text"
+                      value={twilioSid}
+                      onChange={(e) => setTwilioSid(e.target.value)}
+                      placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Auth Token</label>
+                    <input
+                      type="password"
+                      value={twilioToken}
+                      onChange={(e) => setTwilioToken(e.target.value)}
+                      placeholder="Your Twilio auth token"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Phone Number</label>
+                    <input
+                      type="text"
+                      value={twilioPhone}
+                      onChange={(e) => setTwilioPhone(e.target.value)}
+                      placeholder="+1234567890"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={handleSaveSms}
+                      disabled={smsSaving}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+                    >
+                      {smsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Save SMS Settings
+                    </button>
+                    {smsSaved && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 animate-fade-in">
+                        <Check className="w-3.5 h-3.5" /> Saved
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Help card */}
         <div className="mt-10 sm:mt-12 bg-white rounded-xl border-[1.5px] border-gray-100 p-5 sm:p-6 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>

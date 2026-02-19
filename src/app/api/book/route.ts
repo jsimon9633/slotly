@@ -18,6 +18,7 @@ import {
   EMAIL_REGEX,
 } from "@/lib/api-errors";
 import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
+import { executeInstantWorkflows } from "@/lib/workflows";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { eventTypeSlug, teamSlug, startTime, timezone, name, email, phone, notes } = body;
+  const { eventTypeSlug, teamSlug, startTime, timezone, name, email, phone, notes, custom_answers } = body;
 
   // Validate required fields
   if (!eventTypeSlug || !startTime || !timezone || !name || !email || !phone) {
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest) {
     // Get event type — scope to team if provided
     let etQuery = supabaseAdmin
       .from("event_types")
-      .select("id, title, duration_minutes, max_daily_bookings, team_id")
+      .select("id, title, duration_minutes, max_daily_bookings, team_id, booking_questions")
       .eq("slug", eventTypeSlug)
       .eq("is_active", true);
 
@@ -159,6 +160,37 @@ export async function POST(request: NextRequest) {
 
     if (etError || !eventType) {
       return notFound("Event type");
+    }
+
+    // Validate custom answers against booking questions
+    let cleanCustomAnswers: Record<string, any> = {};
+    if (eventType.booking_questions && Array.isArray(eventType.booking_questions) && eventType.booking_questions.length > 0) {
+      const questions = eventType.booking_questions as Array<{
+        id: string; type: string; label: string; required: boolean; options?: string[];
+      }>;
+      if (custom_answers && typeof custom_answers === "object") {
+        for (const q of questions) {
+          const val = custom_answers[q.id];
+          if (q.required) {
+            if (q.type === "checkbox" && val !== true) {
+              return badRequest(`"${q.label}" is required`);
+            }
+            if (q.type !== "checkbox" && (!val || String(val).trim() === "")) {
+              return badRequest(`"${q.label}" is required`);
+            }
+          }
+          if (val !== undefined && val !== null && val !== "") {
+            cleanCustomAnswers[q.id] = q.type === "checkbox" ? Boolean(val) : sanitizeString(String(val), 500);
+          }
+        }
+      } else {
+        // Check if any required questions are unanswered
+        for (const q of questions) {
+          if (q.required) {
+            return badRequest(`"${q.label}" is required`);
+          }
+        }
+      }
     }
 
     // Use the resolved team_id for round-robin scoping
@@ -290,6 +322,7 @@ export async function POST(request: NextRequest) {
         manage_token: manageToken,
         no_show_score: noShowScore,
         risk_tier: riskTier,
+        custom_answers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
       })
       .select("id, start_time, end_time, manage_token")
       .single();
@@ -335,6 +368,22 @@ export async function POST(request: NextRequest) {
       emailSent = false;
       console.error("[Booking] Email send failed:", emailErr instanceof Error ? emailErr.message : emailErr);
     }
+
+    // Execute on_booking workflows (best-effort, don't block response)
+    executeInstantWorkflows(eventType.id, "on_booking", {
+      inviteeName: cleanName,
+      inviteeEmail: cleanEmail,
+      inviteePhone: cleanPhone,
+      teamMemberName: teamMember.name,
+      teamMemberEmail: teamMember.email,
+      eventTitle: eventType.title,
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      timezone,
+      manageToken,
+      meetLink,
+      customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
+    }).catch((err) => console.error("[Booking] Workflow execution failed:", err instanceof Error ? err.message : err));
 
     // Fire webhooks (best-effort, don't block response)
     fireWebhooks("booking.created", {

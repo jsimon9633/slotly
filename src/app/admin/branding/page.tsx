@@ -210,6 +210,12 @@ export default function AdminBrandingPage() {
             Webhooks
           </Link>
           <Link
+            href="/admin/workflows"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Workflows
+          </Link>
+          <Link
             href="/admin/analytics"
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >

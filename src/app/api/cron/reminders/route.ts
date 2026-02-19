@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendReminderEmail } from "@/lib/email";
 import { RISK_THRESHOLDS } from "@/lib/no-show-score";
+import { executeTimedWorkflows } from "@/lib/workflows";
 
 /**
  * GET /api/cron/reminders — Send 2-hour reminder emails for high-risk bookings.
@@ -104,9 +105,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Also execute time-based workflows (before_meeting / after_meeting)
+    let workflowsExecuted = 0;
+    try {
+      workflowsExecuted = await executeTimedWorkflows();
+    } catch (wfErr) {
+      console.error("[Cron/Reminders] Workflow execution error:", wfErr instanceof Error ? wfErr.message : wfErr);
+    }
+
     return NextResponse.json({
       sent,
       checked: bookings.length,
+      workflows_executed: workflowsExecuted,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
