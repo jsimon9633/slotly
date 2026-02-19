@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Zap, Code2, Clock, Users, ChevronRight, Calendar } from "lucide-react";
+import { Zap, Code2, Clock, ChevronRight, Calendar } from "lucide-react";
 import Link from "next/link";
 import type { EventType, SiteSettings, Team } from "@/lib/types";
 
@@ -19,6 +19,25 @@ const NAME_EMOJIS: Record<string, string> = {
   james: "\u{1F468}\u{200D}\u{1F4BC}",
 };
 const FALLBACK_EMOJIS = ["\u{1F464}", "\u{1F9D1}", "\u{1F468}", "\u{1F469}"];
+
+// Finance / money themed emojis for team cards
+const FINANCE_EMOJIS = [
+  "\u{1F4B0}", // money bag
+  "\u{1F4B5}", // dollar banknote
+  "\u{1F4C8}", // chart increasing
+  "\u{1F3E6}", // bank
+  "\u{1F4B3}", // credit card
+  "\u{1F4B8}", // money with wings
+  "\u{1F911}", // money-mouth face
+  "\u{1FA99}", // coin
+  "\u{1F4B2}", // heavy dollar sign
+  "\u{1F4C9}", // chart decreasing (bearish)
+  "\u{1F4CA}", // bar chart
+  "\u{1F4B1}", // currency exchange
+  "\u{2696}\u{FE0F}", // balance scale
+  "\u{1F48E}", // gem stone
+  "\u{1F3AF}", // bullseye
+];
 
 function getEmojiForName(name: string, index: number): string {
   const first = name.toLowerCase();
@@ -114,8 +133,8 @@ export default function HomeClient({ eventTypes, teamMembers, settings, teams }:
                     {/* Team header */}
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 ${colors.bg} rounded-xl grid place-items-center`}>
-                          <Users className={`w-5 h-5 ${colors.text}`} />
+                        <div className={`w-10 h-10 ${colors.bg} rounded-xl grid place-items-center text-xl`}>
+                          {FINANCE_EMOJIS[i % FINANCE_EMOJIS.length]}
                         </div>
                         <div>
                           <h2 className="text-lg sm:text-xl font-bold text-gray-900">{team.name}</h2>

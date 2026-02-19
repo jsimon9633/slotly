@@ -48,7 +48,7 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id } = body;
+  const { id, title, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing event type id");
@@ -56,6 +56,14 @@ export async function PATCH(request: NextRequest) {
 
   // Validate fields
   const updates: Record<string, any> = {};
+
+  if (title !== undefined) {
+    const trimmed = typeof title === "string" ? title.trim() : "";
+    if (!trimmed || trimmed.length > 100) {
+      return badRequest("Title must be 1-100 characters");
+    }
+    updates.title = trimmed;
+  }
 
   if (is_locked !== undefined) {
     updates.is_locked = Boolean(is_locked);
