@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { sendBookingEmails } from "@/lib/email";
 import { fireWebhooks } from "@/lib/webhooks";
-import { addMinutes, parseISO } from "date-fns";
+import { addMinutes, parseISO, differenceInMinutes } from "date-fns";
 import {
   badRequest,
   notFound,
@@ -17,6 +17,7 @@ import {
   sanitizeString,
   EMAIL_REGEX,
 } from "@/lib/api-errors";
+import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -184,6 +185,39 @@ export async function POST(request: NextRequest) {
     const start = parsedStart;
     const end = addMinutes(start, eventType.duration_minutes);
 
+    // ── No-Show Risk Score ──
+    // Check if this email has booked before (repeat booker)
+    const { count: priorBookings } = await supabaseAdmin
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("invitee_email", cleanEmail)
+      .in("status", ["confirmed", "completed"]);
+
+    const isRepeatBooker = (priorBookings ?? 0) > 0;
+    const hasTopic = !!cleanNotes && cleanNotes.toLowerCase().includes("topic:");
+    const hasNotes = !!cleanNotes && cleanNotes.length > 5;
+
+    // Get hour in the booking's timezone
+    let meetingHour = start.getUTCHours();
+    try {
+      const localTime = new Date(start).toLocaleString("en-US", {
+        timeZone: timezone,
+        hour: "numeric",
+        hour12: false,
+      });
+      meetingHour = parseInt(localTime) || meetingHour;
+    } catch { /* fallback to UTC hour */ }
+
+    const noShowScore = calculateNoShowScore({
+      leadTimeMinutes: differenceInMinutes(start, new Date()),
+      dayOfWeek: start.getDay(),
+      hourOfDay: meetingHour,
+      isRepeatBooker,
+      hasTopicFilled: hasTopic,
+      hasNotes,
+    });
+    const riskTier = getRiskTier(noShowScore);
+
     // Track partial failures for warnings
     let calendarSynced = true;
     let emailSent = true;
@@ -216,7 +250,7 @@ export async function POST(request: NextRequest) {
     // Generate unique manage token for reschedule/cancel links
     const manageToken = randomUUID();
 
-    // Save booking to database
+    // Save booking to database (with no-show risk data)
     const { data: booking, error: bookingError } = await supabaseAdmin
       .from("bookings")
       .insert({
@@ -232,6 +266,8 @@ export async function POST(request: NextRequest) {
         status: "confirmed",
         google_event_id: googleEventId,
         manage_token: manageToken,
+        no_show_score: noShowScore,
+        risk_tier: riskTier,
       })
       .select("id, start_time, end_time, manage_token")
       .single();

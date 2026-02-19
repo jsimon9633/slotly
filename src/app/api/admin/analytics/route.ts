@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { unauthorized, serverError } from "@/lib/api-errors";
+import { getSmartSchedulingSummary } from "@/lib/smart-scheduling";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -136,6 +137,13 @@ export async function GET(request: NextRequest) {
     // Cancellation rate
     const cancellationRate = totalBookings > 0 ? Math.round((cancelled / totalBookings) * 100) : 0;
 
+    // No-show stats
+    const noShows = allBookings.filter((b) => b.status === "no_show").length;
+    const noShowRate = totalBookings > 0 ? Math.round((noShows / totalBookings) * 100) : 0;
+
+    // Smart scheduling summary
+    const smartScheduling = await getSmartSchedulingSummary();
+
     return NextResponse.json({
       period_days: days,
       summary: {
@@ -143,13 +151,16 @@ export async function GET(request: NextRequest) {
         confirmed,
         cancelled,
         completed,
+        no_shows: noShows,
         cancellation_rate: cancellationRate,
+        no_show_rate: noShowRate,
       },
       volume_timeline: volumeTimeline,
       event_type_breakdown: eventTypeBreakdown,
       team_utilization: teamUtilization,
       peak_days: peakDays,
       peak_hours: peakHours,
+      smart_scheduling: smartScheduling,
     });
   } catch (err: unknown) {
     return serverError("Analytics query failed. Please try again.", err, "Analytics GET");

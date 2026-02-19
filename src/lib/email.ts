@@ -408,6 +408,65 @@ function buildRescheduleEmail(data: RescheduleEmailData, recipient: "invitee" | 
   return { subject, html };
 }
 
+// ─── Reminder Email (2hr before, high-risk bookings) ─────
+
+export interface ReminderEmailData {
+  inviteeName: string;
+  inviteeEmail: string;
+  teamMemberName: string;
+  eventTitle: string;
+  durationMinutes: number;
+  startTime: string;
+  endTime: string;
+  timezone: string;
+  manageToken: string;
+  meetLink?: string;
+}
+
+function buildReminderEmail(data: ReminderEmailData): { subject: string; html: string } {
+  const timeStr = new Date(data.startTime).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: data.timezone,
+    timeZoneName: "short",
+  });
+
+  const subject = `Reminder: ${data.eventTitle} today at ${timeStr}`;
+
+  const html = emailWrapper(`
+    <h1 style="margin:0 0 8px;font-size:22px;color:#111827;">Quick reminder! ⏰</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#6b7280;">
+      Your ${data.eventTitle.toLowerCase()} is coming up in about 2 hours.
+    </p>
+
+    ${bookingDetailsHtml({
+      eventTitle: data.eventTitle,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      timezone: data.timezone,
+      durationMinutes: data.durationMinutes,
+      withName: data.teamMemberName,
+      meetLink: data.meetLink,
+    })}
+
+    <p style="margin:0;font-size:14px;color:#6b7280;">
+      Can't make it? No worries — you can reschedule or cancel below.
+    </p>
+
+    ${manageButtonsHtml(data.manageToken)}
+  `);
+
+  return { subject, html };
+}
+
+/**
+ * Send reminder email to invitee (high-risk bookings, 2hrs before).
+ */
+export async function sendReminderEmail(data: ReminderEmailData): Promise<boolean> {
+  const { subject, html } = buildReminderEmail(data);
+  return sendEmail(data.inviteeEmail, subject, html);
+}
+
 // ─── Send functions ──────────────────────────────────────
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {

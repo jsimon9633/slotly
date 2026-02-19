@@ -48,13 +48,20 @@ export interface Booking {
   team_member_id: string;
   invitee_name: string;
   invitee_email: string;
+  invitee_phone: string | null;
   invitee_notes: string | null;
   start_time: string;
   end_time: string;
   timezone: string;
-  status: "confirmed" | "cancelled" | "completed";
+  status: "confirmed" | "cancelled" | "completed" | "no_show";
   google_event_id: string | null;
   manage_token: string | null;
+  created_at: string;
+  no_show_score: number | null;
+  risk_tier: "low" | "medium" | "high" | null;
+  reminder_sent_at: string | null;
+  outcome: "completed" | "no_show" | "cancelled" | null;
+  outcome_recorded_at: string | null;
 }
 
 export interface SiteSettings {
@@ -69,4 +76,5 @@ export interface TimeSlot {
   start: string;
   end: string;
   available_member_ids?: string[];
+  label?: "popular" | "recommended";
 }
