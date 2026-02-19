@@ -6,6 +6,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
 /**
  * GET /api/admin/team-members — List all team members (the people who can be assigned to teams).
+ * Returns ALL members including inactive ones so admin can still assign them to teams.
  */
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -18,7 +19,6 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("team_members")
       .select("id, name, email, is_active")
-      .eq("is_active", true)
       .order("name", { ascending: true });
 
     if (error) {
