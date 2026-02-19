@@ -17,7 +17,7 @@ export async function generateStaticParams() {
     if (!data) return [];
 
     return data.map((et: any) => ({
-      teamSlug: et.teams?.slug || "default",
+      slug: et.teams?.slug || "default",
       eventSlug: et.slug,
     }));
   } catch {
@@ -33,11 +33,11 @@ const DEFAULT_SETTINGS: SiteSettings = {
 };
 
 interface PageProps {
-  params: Promise<{ teamSlug: string; eventSlug: string }>;
+  params: Promise<{ slug: string; eventSlug: string }>;
 }
 
 export default async function BookingPage({ params }: PageProps) {
-  const { teamSlug, eventSlug } = await params;
+  const { slug: teamSlug, eventSlug } = await params;
 
   // Validate team exists
   const { data: team } = await supabaseAdmin
