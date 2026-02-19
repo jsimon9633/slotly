@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { badRequest, notFound, serverError } from "@/lib/api-errors";
+import { NextResponse } from "next/server";
 
 /**
  * GET /api/manage/[token] — Fetch booking details by manage token
@@ -11,7 +13,7 @@ export async function GET(
   const { token } = await params;
 
   if (!token || token.length < 10) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 400 });
+    return badRequest("Invalid booking link");
   }
 
   const { data: booking, error } = await supabaseAdmin
@@ -31,8 +33,16 @@ export async function GET(
     .eq("manage_token", token)
     .single();
 
-  if (error || !booking) {
-    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+  if (error) {
+    // Distinguish between "not found" and actual DB errors
+    if (error.code === "PGRST116") {
+      return notFound("Booking");
+    }
+    return serverError("Unable to load booking details. Please try again.", error, "Manage token lookup");
+  }
+
+  if (!booking) {
+    return notFound("Booking");
   }
 
   return NextResponse.json({

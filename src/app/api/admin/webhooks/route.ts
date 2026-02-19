@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
+import { unauthorized, badRequest, serverError } from "@/lib/api-errors";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -14,7 +15,7 @@ function authCheck(request: NextRequest): boolean {
 // GET — list all webhooks with recent delivery logs
 export async function GET(request: NextRequest) {
   if (!authCheck(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   const { data: webhooks, error } = await supabaseAdmin
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError("Failed to load webhooks.", error, "Webhooks GET");
   }
 
   // Fetch recent logs for each webhook (last 10 per webhook)
@@ -31,14 +32,19 @@ export async function GET(request: NextRequest) {
   let logs: any[] = [];
 
   if (webhookIds.length > 0) {
-    const { data: logData } = await supabaseAdmin
+    const { data: logData, error: logError } = await supabaseAdmin
       .from("webhook_logs")
       .select("id, webhook_id, event, status_code, success, created_at")
       .in("webhook_id", webhookIds)
       .order("created_at", { ascending: false })
       .limit(50);
 
-    logs = logData || [];
+    if (logError) {
+      console.error("[Webhooks] Log query failed:", logError.message);
+      // Non-fatal — return webhooks without logs
+    } else {
+      logs = logData || [];
+    }
   }
 
   return NextResponse.json({ webhooks: webhooks || [], logs });
@@ -47,43 +53,40 @@ export async function GET(request: NextRequest) {
 // POST — create a new webhook
 export async function POST(request: NextRequest) {
   if (!authCheck(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return badRequest("Invalid request body");
   }
 
   const { url, events } = body;
 
   if (!url || typeof url !== "string") {
-    return NextResponse.json({ error: "URL is required" }, { status: 400 });
+    return badRequest("URL is required");
   }
 
   // Validate URL format
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) {
-      return NextResponse.json({ error: "URL must be HTTP or HTTPS" }, { status: 400 });
+      return badRequest("URL must be HTTP or HTTPS");
     }
   } catch {
-    return NextResponse.json({ error: "Invalid URL format" }, { status: 400 });
+    return badRequest("Invalid URL format");
   }
 
   // Validate events
   if (!Array.isArray(events) || events.length === 0) {
-    return NextResponse.json({ error: "At least one event is required" }, { status: 400 });
+    return badRequest("At least one event is required");
   }
 
   const validEvents = events.filter((e: string) => VALID_EVENTS.includes(e));
   if (validEvents.length === 0) {
-    return NextResponse.json(
-      { error: `Invalid events. Valid: ${VALID_EVENTS.join(", ")}` },
-      { status: 400 }
-    );
+    return badRequest(`Invalid events. Valid options: ${VALID_EVENTS.join(", ")}`);
   }
 
   // Generate signing secret
@@ -102,7 +105,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError("Failed to create webhook.", error, "Webhooks POST");
   }
 
   return NextResponse.json(data, { status: 201 });
@@ -111,20 +114,20 @@ export async function POST(request: NextRequest) {
 // PATCH — update webhook (toggle active, update URL/events)
 export async function PATCH(request: NextRequest) {
   if (!authCheck(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return badRequest("Invalid request body");
   }
 
   const { id, url, events, is_active } = body;
 
-  if (!id) {
-    return NextResponse.json({ error: "Webhook id is required" }, { status: 400 });
+  if (!id || typeof id !== "string") {
+    return badRequest("Webhook id is required");
   }
 
   const updates: Record<string, any> = {};
@@ -133,21 +136,21 @@ export async function PATCH(request: NextRequest) {
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) {
-        return NextResponse.json({ error: "URL must be HTTP or HTTPS" }, { status: 400 });
+        return badRequest("URL must be HTTP or HTTPS");
       }
       updates.url = url.trim();
     } catch {
-      return NextResponse.json({ error: "Invalid URL format" }, { status: 400 });
+      return badRequest("Invalid URL format");
     }
   }
 
   if (events !== undefined) {
     if (!Array.isArray(events) || events.length === 0) {
-      return NextResponse.json({ error: "At least one event is required" }, { status: 400 });
+      return badRequest("At least one event is required");
     }
     const validEvents = events.filter((e: string) => VALID_EVENTS.includes(e));
     if (validEvents.length === 0) {
-      return NextResponse.json({ error: "No valid events provided" }, { status: 400 });
+      return badRequest("No valid events provided");
     }
     updates.events = validEvents;
   }
@@ -157,7 +160,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    return badRequest("No valid fields to update");
   }
 
   const { error } = await supabaseAdmin
@@ -166,7 +169,7 @@ export async function PATCH(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError("Failed to update webhook.", error, "Webhooks PATCH");
   }
 
   return NextResponse.json({ success: true });
@@ -175,18 +178,21 @@ export async function PATCH(request: NextRequest) {
 // DELETE — remove a webhook
 export async function DELETE(request: NextRequest) {
   if (!authCheck(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
 
-  if (!id) {
-    return NextResponse.json({ error: "Webhook id is required" }, { status: 400 });
+  if (!id || typeof id !== "string") {
+    return badRequest("Webhook id is required");
   }
 
   // Delete logs first (foreign key)
-  await supabaseAdmin.from("webhook_logs").delete().eq("webhook_id", id);
+  const { error: logDeleteError } = await supabaseAdmin.from("webhook_logs").delete().eq("webhook_id", id);
+  if (logDeleteError) {
+    console.error("[Webhooks] Log cleanup failed:", logDeleteError.message);
+  }
 
   const { error } = await supabaseAdmin
     .from("webhooks")
@@ -194,7 +200,7 @@ export async function DELETE(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError("Failed to delete webhook.", error, "Webhooks DELETE");
   }
 
   return NextResponse.json({ success: true });

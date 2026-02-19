@@ -1,8 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { updateCalendarEvent } from "@/lib/google-calendar";
 import { sendRescheduleEmails } from "@/lib/email";
 import { addMinutes, parseISO } from "date-fns";
+import {
+  badRequest,
+  notFound,
+  serverError,
+  successWithWarnings,
+  classifyGoogleError,
+  validateTimezone,
+} from "@/lib/api-errors";
 
 /**
  * POST /api/manage/[token]/reschedule — Reschedule a booking to a new time
@@ -15,30 +23,45 @@ export async function POST(
   const { token } = await params;
 
   if (!token || token.length < 10) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 400 });
+    return badRequest("Invalid booking link");
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return badRequest("Invalid request body");
   }
 
   const { startTime, timezone } = body;
 
   if (!startTime || !timezone) {
-    return NextResponse.json({ error: "Missing startTime or timezone" }, { status: 400 });
+    return badRequest("Please select a new date and time.");
+  }
+
+  if (typeof startTime !== "string" || typeof timezone !== "string") {
+    return badRequest("Invalid request format");
+  }
+
+  // Validate timezone
+  if (!validateTimezone(timezone)) {
+    return badRequest("Invalid timezone. Please select a valid timezone.");
   }
 
   const newStart = parseISO(startTime);
   if (isNaN(newStart.getTime())) {
-    return NextResponse.json({ error: "Invalid start time" }, { status: 400 });
+    return badRequest("Invalid start time");
   }
 
   // Don't allow rescheduling to the past
   if (newStart.getTime() < Date.now() - 60000) {
-    return NextResponse.json({ error: "Cannot reschedule to the past" }, { status: 400 });
+    return badRequest("Cannot reschedule to a time in the past.");
+  }
+
+  // Don't allow rescheduling too far in the future (90 days)
+  const maxFuture = Date.now() + 90 * 24 * 60 * 60 * 1000;
+  if (newStart.getTime() > maxFuture) {
+    return badRequest("Cannot reschedule more than 90 days ahead.");
   }
 
   // Fetch full booking with relations
@@ -61,12 +84,19 @@ export async function POST(
     .eq("manage_token", token)
     .single();
 
-  if (error || !booking) {
-    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+  if (error) {
+    if (error.code === "PGRST116") {
+      return notFound("Booking");
+    }
+    return serverError("Unable to load booking. Please try again.", error, "Reschedule lookup");
+  }
+
+  if (!booking) {
+    return notFound("Booking");
   }
 
   if (booking.status === "cancelled") {
-    return NextResponse.json({ error: "Cannot reschedule a cancelled booking" }, { status: 400 });
+    return badRequest("Cannot reschedule a cancelled booking.");
   }
 
   const teamMember = booking.team_members as any;
@@ -88,8 +118,12 @@ export async function POST(
     .eq("id", booking.id);
 
   if (updateError) {
-    return NextResponse.json({ error: "Failed to reschedule booking" }, { status: 500 });
+    return serverError("Failed to reschedule booking. Please try again.", updateError, "Reschedule update");
   }
+
+  // Track partial failures
+  let calendarSynced = true;
+  let emailSent = true;
 
   // 2. Update Google Calendar event
   if (booking.google_event_id && teamMember?.google_calendar_id) {
@@ -105,8 +139,9 @@ export async function POST(
         timezone,
       });
     } catch (err) {
-      console.error("Failed to update calendar event:", err);
-      // Continue — booking is already updated in DB
+      calendarSynced = false;
+      const classified = classifyGoogleError(err);
+      console.error(`[Reschedule] Calendar update failed (${classified.type}):`, err instanceof Error ? err.message : err);
     }
   }
 
@@ -127,14 +162,18 @@ export async function POST(
       manageToken: booking.manage_token,
     });
   } catch (err) {
-    console.error("Failed to send reschedule emails:", err);
+    emailSent = false;
+    console.error("[Reschedule] Email send failed:", err instanceof Error ? err.message : err);
   }
 
-  return NextResponse.json({
-    success: true,
-    booking: {
-      start_time: newStart.toISOString(),
-      end_time: newEnd.toISOString(),
+  return successWithWarnings(
+    {
+      success: true,
+      booking: {
+        start_time: newStart.toISOString(),
+        end_time: newEnd.toISOString(),
+      },
     },
-  });
+    { calendar_synced: calendarSynced, email_sent: emailSent }
+  );
 }

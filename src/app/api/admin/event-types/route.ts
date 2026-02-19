@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { unauthorized, badRequest, serverError } from "@/lib/api-errors";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   if (token !== ADMIN_TOKEN) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   const { data, error } = await supabaseAdmin
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     .order("title");
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError("Failed to load event types.", error, "Admin event-types GET");
   }
 
   return NextResponse.json(data);
@@ -28,20 +29,20 @@ export async function PATCH(request: NextRequest) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   if (token !== ADMIN_TOKEN) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return badRequest("Invalid request body");
   }
 
   const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days } = body;
 
-  if (!id) {
-    return NextResponse.json({ error: "Missing event type id" }, { status: 400 });
+  if (!id || typeof id !== "string") {
+    return badRequest("Missing event type id");
   }
 
   // Validate fields
@@ -54,7 +55,7 @@ export async function PATCH(request: NextRequest) {
   if (before_buffer_mins !== undefined) {
     const val = parseInt(before_buffer_mins);
     if (isNaN(val) || val < 0 || val > 120) {
-      return NextResponse.json({ error: "Before buffer must be 0-120 minutes" }, { status: 400 });
+      return badRequest("Before buffer must be 0-120 minutes");
     }
     updates.before_buffer_mins = val;
   }
@@ -62,7 +63,7 @@ export async function PATCH(request: NextRequest) {
   if (after_buffer_mins !== undefined) {
     const val = parseInt(after_buffer_mins);
     if (isNaN(val) || val < 0 || val > 120) {
-      return NextResponse.json({ error: "After buffer must be 0-120 minutes" }, { status: 400 });
+      return badRequest("After buffer must be 0-120 minutes");
     }
     updates.after_buffer_mins = val;
   }
@@ -70,7 +71,7 @@ export async function PATCH(request: NextRequest) {
   if (min_notice_hours !== undefined) {
     const val = parseInt(min_notice_hours);
     if (isNaN(val) || val < 0 || val > 168) {
-      return NextResponse.json({ error: "Minimum notice must be 0-168 hours" }, { status: 400 });
+      return badRequest("Minimum notice must be 0-168 hours");
     }
     updates.min_notice_hours = val;
   }
@@ -81,7 +82,7 @@ export async function PATCH(request: NextRequest) {
     } else {
       const val = parseInt(max_daily_bookings);
       if (isNaN(val) || val < 1 || val > 100) {
-        return NextResponse.json({ error: "Daily limit must be 1-100 or empty for unlimited" }, { status: 400 });
+        return badRequest("Daily limit must be 1-100 or empty for unlimited");
       }
       updates.max_daily_bookings = val;
     }
@@ -90,13 +91,13 @@ export async function PATCH(request: NextRequest) {
   if (max_advance_days !== undefined) {
     const val = parseInt(max_advance_days);
     if (isNaN(val) || val < 2 || val > 30) {
-      return NextResponse.json({ error: "Advance days must be 2-30" }, { status: 400 });
+      return badRequest("Advance days must be 2-30");
     }
     updates.max_advance_days = val;
   }
 
   if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    return badRequest("No valid fields to update");
   }
 
   const { error } = await supabaseAdmin
@@ -105,7 +106,7 @@ export async function PATCH(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError("Failed to update event type settings.", error, "Admin event-types PATCH");
   }
 
   return NextResponse.json({ success: true });

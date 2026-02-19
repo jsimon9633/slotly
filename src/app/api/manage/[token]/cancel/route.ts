@@ -1,7 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { deleteCalendarEvent } from "@/lib/google-calendar";
 import { sendCancellationEmails } from "@/lib/email";
+import {
+  badRequest,
+  notFound,
+  serverError,
+  successWithWarnings,
+  classifyGoogleError,
+} from "@/lib/api-errors";
 
 /**
  * POST /api/manage/[token]/cancel — Cancel a booking
@@ -13,7 +20,7 @@ export async function POST(
   const { token } = await params;
 
   if (!token || token.length < 10) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 400 });
+    return badRequest("Invalid booking link");
   }
 
   // Fetch full booking with relations
@@ -35,12 +42,19 @@ export async function POST(
     .eq("manage_token", token)
     .single();
 
-  if (error || !booking) {
-    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+  if (error) {
+    if (error.code === "PGRST116") {
+      return notFound("Booking");
+    }
+    return serverError("Unable to load booking. Please try again.", error, "Cancel lookup");
+  }
+
+  if (!booking) {
+    return notFound("Booking");
   }
 
   if (booking.status === "cancelled") {
-    return NextResponse.json({ error: "Booking is already cancelled" }, { status: 400 });
+    return badRequest("This booking has already been cancelled.");
   }
 
   const teamMember = booking.team_members as any;
@@ -53,16 +67,21 @@ export async function POST(
     .eq("id", booking.id);
 
   if (updateError) {
-    return NextResponse.json({ error: "Failed to cancel booking" }, { status: 500 });
+    return serverError("Failed to cancel booking. Please try again.", updateError, "Cancel update");
   }
+
+  // Track partial failures
+  let calendarSynced = true;
+  let emailSent = true;
 
   // 2. Delete Google Calendar event
   if (booking.google_event_id && teamMember?.google_calendar_id) {
     try {
       await deleteCalendarEvent(booking.google_event_id, teamMember.google_calendar_id);
     } catch (err) {
-      console.error("Failed to delete calendar event:", err);
-      // Continue — booking is already cancelled in DB
+      calendarSynced = false;
+      const classified = classifyGoogleError(err);
+      console.error(`[Cancel] Calendar delete failed (${classified.type}):`, err instanceof Error ? err.message : err);
     }
   }
 
@@ -81,8 +100,12 @@ export async function POST(
       cancelledBy: "invitee",
     });
   } catch (err) {
-    console.error("Failed to send cancellation emails:", err);
+    emailSent = false;
+    console.error("[Cancel] Email send failed:", err instanceof Error ? err.message : err);
   }
 
-  return NextResponse.json({ success: true });
+  return successWithWarnings(
+    { success: true },
+    { calendar_synced: calendarSynced, email_sent: emailSent }
+  );
 }

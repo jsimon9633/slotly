@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getCombinedAvailability } from "@/lib/availability";
+import {
+  badRequest,
+  notFound,
+  serverError,
+  validateTimezone,
+} from "@/lib/api-errors";
 
 // Basic input validation
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const TIMEZONE_REGEX = /^[A-Za-z_/]+$/;
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -13,25 +18,28 @@ export async function GET(request: NextRequest) {
   const timezone = searchParams.get("timezone") || "America/New_York";
 
   if (!date || !eventTypeSlug) {
-    return NextResponse.json(
-      { error: "Missing required params: date, eventType" },
-      { status: 400 }
-    );
+    return badRequest("Missing required params: date, eventType");
   }
 
   // Validate date format
   if (!DATE_REGEX.test(date)) {
-    return NextResponse.json({ error: "Invalid date format" }, { status: 400 });
+    return badRequest("Invalid date format. Expected YYYY-MM-DD.");
   }
 
-  // Validate timezone (basic check — no special characters)
-  if (!TIMEZONE_REGEX.test(timezone)) {
-    return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
+  // Validate the date is actually real (e.g., reject 2026-02-30)
+  const dateCheck = new Date(date + "T12:00:00Z");
+  if (isNaN(dateCheck.getTime())) {
+    return badRequest("Invalid date.");
+  }
+
+  // Validate timezone using IANA check
+  if (!validateTimezone(timezone)) {
+    return badRequest("Invalid timezone. Please select a valid timezone.");
   }
 
   // Validate slug (alphanumeric + hyphens only)
   if (!/^[a-z0-9-]+$/.test(eventTypeSlug)) {
-    return NextResponse.json({ error: "Invalid event type" }, { status: 400 });
+    return badRequest("Invalid event type");
   }
 
   // Look up event type — only fetch needed fields
@@ -42,8 +50,15 @@ export async function GET(request: NextRequest) {
     .eq("is_active", true)
     .single();
 
-  if (etError || !eventType) {
-    return NextResponse.json({ error: "Event type not found" }, { status: 404 });
+  if (etError) {
+    if (etError.code === "PGRST116") {
+      return notFound("Event type");
+    }
+    return serverError("Unable to look up event type. Please try again.", etError, "Availability event type lookup");
+  }
+
+  if (!eventType) {
+    return notFound("Event type");
   }
 
   // Enforce max advance days — reject requests for dates too far out
@@ -75,10 +90,26 @@ export async function GET(request: NextRequest) {
       timezone,
       slots,
     });
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to fetch availability" },
-      { status: 500 }
+  } catch (err) {
+    // Classify Google Calendar errors for better logging
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const isCalendarIssue = errMsg.toLowerCase().includes("calendar") ||
+      errMsg.toLowerCase().includes("google") ||
+      errMsg.toLowerCase().includes("invalid_grant");
+
+    if (isCalendarIssue) {
+      console.error("[Availability] Google Calendar error:", errMsg);
+      return serverError(
+        "Unable to check calendar availability. Please try again in a moment.",
+        err,
+        "Availability Google Calendar"
+      );
+    }
+
+    return serverError(
+      "Unable to fetch available times. Please try again.",
+      err,
+      "Availability general"
     );
   }
 }

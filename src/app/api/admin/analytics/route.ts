@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { unauthorized, serverError } from "@/lib/api-errors";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -7,7 +8,7 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   if (token !== ADMIN_TOKEN) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   // Default: last 30 days
@@ -27,20 +28,30 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: true });
 
     if (bookErr) {
-      return NextResponse.json({ error: bookErr.message }, { status: 500 });
+      return serverError("Failed to load analytics data.", bookErr, "Analytics bookings query");
     }
 
     const allBookings = bookings || [];
 
     // 2. Event types for labeling
-    const { data: eventTypes } = await supabaseAdmin
+    const { data: eventTypes, error: etError } = await supabaseAdmin
       .from("event_types")
       .select("id, title, color, slug");
 
+    if (etError) {
+      console.error("[Analytics] Event types query failed:", etError.message);
+      // Non-fatal — continue with empty labels
+    }
+
     // 3. Team members for labeling
-    const { data: teamMembers } = await supabaseAdmin
+    const { data: teamMembers, error: tmError } = await supabaseAdmin
       .from("team_members")
       .select("id, name");
+
+    if (tmError) {
+      console.error("[Analytics] Team members query failed:", tmError.message);
+      // Non-fatal — continue with empty labels
+    }
 
     // --- Compute analytics ---
 
@@ -140,7 +151,7 @@ export async function GET(request: NextRequest) {
       peak_days: peakDays,
       peak_hours: peakHours,
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: "Analytics query failed" }, { status: 500 });
+  } catch (err: unknown) {
+    return serverError("Analytics query failed. Please try again.", err, "Analytics GET");
   }
 }

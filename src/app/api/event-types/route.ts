@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { serverError } from "@/lib/api-errors";
 
 export async function GET() {
   const { data, error } = await supabaseAdmin
@@ -9,7 +10,7 @@ export async function GET() {
     .order("duration_minutes", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: "Failed to load event types" }, { status: 500 });
+    return serverError("Unable to load event types. Please try again.", error, "Event types GET");
   }
 
   return NextResponse.json(data);
