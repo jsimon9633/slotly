@@ -95,13 +95,6 @@ export default function AdminTeamsPage() {
   const [selectedCreateMembers, setSelectedCreateMembers] = useState<string[]>([]);
   const [addingCreateMembers, setAddingCreateMembers] = useState(false);
 
-  // Create event type state
-  const [showCreateET, setShowCreateET] = useState(false);
-  const [newETTitle, setNewETTitle] = useState("");
-  const [newETDuration, setNewETDuration] = useState("30");
-  const [newETColor, setNewETColor] = useState("#6366f1");
-  const [creatingET, setCreatingET] = useState(false);
-
   // Delete state
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -330,39 +323,6 @@ export default function AdminTeamsPage() {
     setSelectedCreateMembers((prev) =>
       prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
     );
-  };
-
-  // Create custom event type
-  const handleCreateEventType = async () => {
-    if (!newETTitle.trim()) return;
-    setCreatingET(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newETTitle.trim(),
-          duration_minutes: parseInt(newETDuration) || 30,
-          color: newETColor,
-        }),
-      });
-      if (res.ok) {
-        setNewETTitle("");
-        setNewETDuration("30");
-        setNewETColor("#6366f1");
-        setShowCreateET(false);
-        fetchAllEventTypes();
-        fetchTeams();
-      } else {
-        const data = await res.json();
-        setError(data.error || "Failed to create event type.");
-      }
-    } catch {
-      setError("Something went wrong.");
-    } finally {
-      setCreatingET(false);
-    }
   };
 
   // Delete team
@@ -653,22 +613,13 @@ export default function AdminTeamsPage() {
                 Manage teams, assign members, and organize event types.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { setShowCreateET(!showCreateET); }}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold bg-white border-[1.5px] border-gray-200 text-gray-700 hover:border-indigo-300 hover:text-indigo-600 transition-all"
-              >
-                <Calendar className="w-4 h-4" />
-                New Event Type
-              </button>
-              <button
-                onClick={() => { setShowCreate(!showCreate); setCreateStep(1); setNewTeamId(null); setSelectedCreateMembers([]); }}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                New Team
-              </button>
-            </div>
+            <button
+              onClick={() => { setShowCreate(!showCreate); setCreateStep(1); setNewTeamId(null); setSelectedCreateMembers([]); }}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              New Team
+            </button>
           </div>
         </div>
 
@@ -678,81 +629,6 @@ export default function AdminTeamsPage() {
             <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
               <X className="w-4 h-4" />
             </button>
-          </div>
-        )}
-
-        {/* Create Event Type */}
-        {showCreateET && (
-          <div className="bg-white rounded-xl border-[1.5px] border-violet-200 p-5 sm:p-6 mb-6 animate-fade-in-up">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">Create New Event Type</h3>
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    Title *
-                  </label>
-                  <input
-                    type="text"
-                    value={newETTitle}
-                    onChange={(e) => setNewETTitle(e.target.value)}
-                    placeholder="e.g. Quick Chat, Portfolio Review"
-                    className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    Duration (min) *
-                  </label>
-                  <select
-                    value={newETDuration}
-                    onChange={(e) => setNewETDuration(e.target.value)}
-                    className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                  >
-                    <option value="15">15 min</option>
-                    <option value="20">20 min</option>
-                    <option value="30">30 min</option>
-                    <option value="45">45 min</option>
-                    <option value="60">60 min</option>
-                    <option value="90">90 min</option>
-                    <option value="120">120 min</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Color
-                </label>
-                <div className="flex items-center gap-2">
-                  {["#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"].map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setNewETColor(c)}
-                      className={`w-8 h-8 rounded-full border-2 transition-all ${newETColor === c ? "border-gray-900 scale-110" : "border-transparent hover:border-gray-300"}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  onClick={handleCreateEventType}
-                  disabled={!newETTitle.trim() || creatingET}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
-                >
-                  {creatingET ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
-                  ) : (
-                    <><Plus className="w-4 h-4" /> Create Event Type</>
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowCreateET(false)}
-                  className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-600 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
           </div>
         )}
 

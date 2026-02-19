@@ -235,3 +235,48 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ success: true });
 }
+
+/**
+ * DELETE /api/admin/event-types — Delete an event type.
+ *
+ * Body: { id: string }
+ *
+ * Also cleans up join table entries (CASCADE handles this if FK is set,
+ * but we do it explicitly for safety).
+ */
+export async function DELETE(request: NextRequest) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (token !== ADMIN_TOKEN) {
+    return unauthorized();
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("Invalid request body");
+  }
+
+  const { id } = body;
+  if (!id || typeof id !== "string") {
+    return badRequest("Missing event type id");
+  }
+
+  // Clean up join table first
+  await supabaseAdmin
+    .from("team_event_types")
+    .delete()
+    .eq("event_type_id", id);
+
+  const { error } = await supabaseAdmin
+    .from("event_types")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return serverError("Failed to delete event type.", error, "Admin event-types DELETE");
+  }
+
+  return NextResponse.json({ success: true });
+}

@@ -14,6 +14,12 @@ import {
   CalendarClock,
   Hash,
   Save,
+  Pencil,
+  X,
+  Plus,
+  Calendar,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -55,6 +61,21 @@ export default function AdminSettingsPage() {
   const [pendingEdits, setPendingEdits] = useState<Record<string, PendingEdit>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+
+  // Inline rename state
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [editingTitleValue, setEditingTitleValue] = useState("");
+
+  // Create event type state
+  const [showCreateET, setShowCreateET] = useState(false);
+  const [newETTitle, setNewETTitle] = useState("");
+  const [newETDuration, setNewETDuration] = useState("30");
+  const [newETColor, setNewETColor] = useState("#6366f1");
+  const [creatingET, setCreatingET] = useState(false);
+
+  // Delete event type state
+  const [confirmDeleteETId, setConfirmDeleteETId] = useState<string | null>(null);
+  const [deletingET, setDeletingET] = useState(false);
 
   // Auth check
   useEffect(() => {
@@ -197,6 +218,88 @@ export default function AdminSettingsPage() {
     }
   };
 
+  // Rename event type
+  const handleRenameEventType = async (etId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    setSavingId(etId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: etId, title: newTitle.trim() }),
+      });
+      if (res.ok) {
+        setSavedId(etId);
+        setTimeout(() => setSavedId(null), 2500);
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to rename.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  // Create custom event type
+  const handleCreateEventType = async () => {
+    if (!newETTitle.trim()) return;
+    setCreatingET(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newETTitle.trim(),
+          duration_minutes: parseInt(newETDuration) || 30,
+          color: newETColor,
+        }),
+      });
+      if (res.ok) {
+        setNewETTitle("");
+        setNewETDuration("30");
+        setNewETColor("#6366f1");
+        setShowCreateET(false);
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to create event type.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setCreatingET(false);
+    }
+  };
+
+  // Delete event type
+  const handleDeleteEventType = async (etId: string) => {
+    setDeletingET(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: etId }),
+      });
+      if (res.ok) {
+        setConfirmDeleteETId(null);
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to delete event type.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setDeletingET(false);
+    }
+  };
+
   // Auth gate
   if (!authenticated) {
     return (
@@ -309,18 +412,107 @@ export default function AdminSettingsPage() {
       <main className="max-w-[720px] sm:max-w-[860px] mx-auto px-5 sm:px-8 pt-7 sm:pt-9 pb-14">
         {/* Title */}
         <div className="mb-6 sm:mb-8 animate-fade-in-up">
-          <div className="flex items-center gap-2.5 mb-1">
-            <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500" />
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Scheduling Settings</h1>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2.5 mb-1">
+                <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500" />
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Scheduling Settings</h1>
+              </div>
+              <p className="text-base sm:text-lg text-gray-400">
+                Manage event types and configure scheduling rules.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCreateET(!showCreateET)}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              New Event Type
+            </button>
           </div>
-          <p className="text-base sm:text-lg text-gray-400">
-            Configure buffer times, minimum notice, and daily limits for each event type.
-          </p>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 text-sm text-red-600 animate-fade-in">
-            {error}
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 text-sm text-red-600 animate-fade-in flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Create Event Type Form */}
+        {showCreateET && (
+          <div className="bg-white rounded-xl border-[1.5px] border-indigo-200 p-5 sm:p-6 mb-6 animate-fade-in-up">
+            <h3 className="text-base font-semibold text-gray-900 mb-4">Create New Event Type</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={newETTitle}
+                    onChange={(e) => setNewETTitle(e.target.value)}
+                    placeholder="e.g. Quick Chat, Portfolio Review"
+                    className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Duration (min) *
+                  </label>
+                  <select
+                    value={newETDuration}
+                    onChange={(e) => setNewETDuration(e.target.value)}
+                    className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                  >
+                    <option value="15">15 min</option>
+                    <option value="20">20 min</option>
+                    <option value="30">30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">60 min</option>
+                    <option value="90">90 min</option>
+                    <option value="120">120 min</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Color
+                </label>
+                <div className="flex items-center gap-2">
+                  {["#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setNewETColor(c)}
+                      className={`w-8 h-8 rounded-full border-2 transition-all ${newETColor === c ? "border-gray-900 scale-110" : "border-transparent hover:border-gray-300"}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={handleCreateEventType}
+                  disabled={!newETTitle.trim() || creatingET}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+                >
+                  {creatingET ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                  ) : (
+                    <><Plus className="w-4 h-4" /> Create Event Type</>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowCreateET(false)}
+                  className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-600 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -346,7 +538,55 @@ export default function AdminSettingsPage() {
                     style={{ backgroundColor: et.color }}
                   />
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base sm:text-lg font-semibold text-gray-900">{et.title}</h3>
+                    {editingTitleId === et.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editingTitleValue}
+                          onChange={(e) => setEditingTitleValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              handleRenameEventType(et.id, editingTitleValue);
+                              setEditingTitleId(null);
+                            }
+                            if (e.key === "Escape") setEditingTitleId(null);
+                          }}
+                          autoFocus
+                          className="text-base sm:text-lg font-semibold text-gray-900 bg-white border-[1.5px] border-indigo-300 rounded-lg px-2.5 py-1 outline-none focus:ring-2 focus:ring-indigo-100 w-full max-w-[280px]"
+                        />
+                        <button
+                          onClick={() => {
+                            handleRenameEventType(et.id, editingTitleValue);
+                            setEditingTitleId(null);
+                          }}
+                          className="text-indigo-500 hover:text-indigo-700"
+                          title="Save"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingTitleId(null)}
+                          className="text-gray-400 hover:text-gray-600"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900">{et.title}</h3>
+                        <button
+                          onClick={() => {
+                            setEditingTitleId(et.id);
+                            setEditingTitleValue(et.title);
+                          }}
+                          className="text-gray-300 hover:text-indigo-500 transition-colors"
+                          title="Rename event type"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                     <span className="text-sm text-gray-400">{et.duration_minutes} min · /{et.slug}</span>
                   </div>
                   {!et.is_active && (
@@ -512,6 +752,39 @@ export default function AdminSettingsPage() {
                     </span>
                   </div>
                 )}
+
+                {/* Delete event type */}
+                <div className="px-5 sm:px-6 pb-4 border-t border-gray-100 pt-3">
+                  {confirmDeleteETId === et.id ? (
+                    <div className="flex items-center gap-3 bg-red-50 rounded-lg px-4 py-3">
+                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      <span className="text-sm text-red-700 flex-1">
+                        Delete <strong>{et.title}</strong>? This removes it from all teams and cancels future bookings.
+                      </span>
+                      <button
+                        onClick={() => handleDeleteEventType(et.id)}
+                        disabled={deletingET}
+                        className="px-3 py-1.5 rounded-md text-xs font-semibold bg-red-600 text-white hover:bg-red-700 transition-all disabled:opacity-50"
+                      >
+                        {deletingET ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Delete"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteETId(null)}
+                        className="text-xs text-gray-400 hover:text-gray-600"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteETId(et.id)}
+                      className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete event type
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
