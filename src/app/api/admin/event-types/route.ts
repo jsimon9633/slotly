@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings")
+    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
     .order("title");
 
   if (error) {
@@ -38,7 +38,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings } = body;
+  const { id, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Missing event type id" }, { status: 400 });
@@ -85,6 +85,14 @@ export async function PATCH(request: NextRequest) {
       }
       updates.max_daily_bookings = val;
     }
+  }
+
+  if (max_advance_days !== undefined) {
+    const val = parseInt(max_advance_days);
+    if (isNaN(val) || val < 2 || val > 30) {
+      return NextResponse.json({ error: "Advance days must be 2-30" }, { status: 400 });
+    }
+    updates.max_advance_days = val;
   }
 
   if (Object.keys(updates).length === 0) {

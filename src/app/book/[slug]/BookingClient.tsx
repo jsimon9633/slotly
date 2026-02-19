@@ -274,9 +274,10 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showTzPicker]);
 
-  // Memoize next 14 days so it doesn't recalculate every render
+  // Memoize calendar days — today + max_advance_days into the future
   const today = useMemo(() => startOfDay(new Date()), []);
-  const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(today, i)), [today]);
+  const maxDays = (eventType.max_advance_days || 10) + 1; // +1 to include today
+  const days = useMemo(() => Array.from({ length: maxDays }, (_, i) => addDays(today, i)), [today, maxDays]);
 
   // Date scroll navigation
   const [dateOffset, setDateOffset] = useState(0);

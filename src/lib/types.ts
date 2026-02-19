@@ -20,6 +20,7 @@ export interface EventType {
   after_buffer_mins: number;
   min_notice_hours: number;
   max_daily_bookings: number | null;
+  max_advance_days: number;
 }
 
 export interface Webhook {

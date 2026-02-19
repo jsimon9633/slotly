@@ -37,13 +37,22 @@ export async function GET(request: NextRequest) {
   // Look up event type — only fetch needed fields
   const { data: eventType, error: etError } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings")
+    .select("id, slug, title, duration_minutes, color, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
     .eq("slug", eventTypeSlug)
     .eq("is_active", true)
     .single();
 
   if (etError || !eventType) {
     return NextResponse.json({ error: "Event type not found" }, { status: 404 });
+  }
+
+  // Enforce max advance days — reject requests for dates too far out
+  const maxAdvanceDays = eventType.max_advance_days || 10;
+  const requestedDate = new Date(date + "T12:00:00Z");
+  const maxDate = new Date();
+  maxDate.setUTCDate(maxDate.getUTCDate() + maxAdvanceDays);
+  if (requestedDate > maxDate) {
+    return NextResponse.json({ slots: [], date, timezone });
   }
 
   try {
