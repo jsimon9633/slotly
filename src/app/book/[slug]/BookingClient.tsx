@@ -577,7 +577,7 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                     No available times on this day.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 max-h-56 sm:max-h-64 overflow-y-auto hide-scrollbar">
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 max-h-56 sm:max-h-64 overflow-y-auto hide-scrollbar pt-2 pr-1">
                     {slots.map((slot, i) => (
                       <button
                         key={slot.start}
