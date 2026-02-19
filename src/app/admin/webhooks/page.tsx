@@ -271,6 +271,12 @@ export default function AdminWebhooksPage() {
             Team
           </Link>
           <Link
+            href="/admin/teams"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Teams
+          </Link>
+          <Link
             href="/admin/settings"
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
