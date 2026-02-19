@@ -17,6 +17,7 @@ import {
   X,
   Save,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -101,6 +102,10 @@ export default function AdminTeamsPage() {
 
   // Action state
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Inline event type rename state
+  const [editingEventTypeId, setEditingEventTypeId] = useState<string | null>(null);
+  const [editingEventTypeTitle, setEditingEventTypeTitle] = useState("");
 
   // Auth check
   useEffect(() => {
@@ -243,6 +248,7 @@ export default function AdminTeamsPage() {
   };
 
   // Create new team — step 1: name + description, step 2: add members
+  // Auto-assigns all event types to the new team
   const handleCreateTeam = async () => {
     if (!newName.trim()) return;
     setCreating(true);
@@ -259,8 +265,19 @@ export default function AdminTeamsPage() {
       if (res.ok) {
         const team = await res.json();
         setNewTeamId(team.id);
+
+        // Auto-assign all event types to the new team
+        for (const et of allEventTypes) {
+          await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: et.id, team_id: team.id }),
+          });
+        }
+
         setCreateStep(2);
         fetchTeams();
+        fetchAllEventTypes();
       } else {
         const data = await res.json();
         setError(data.error || "Failed to create team.");
@@ -438,6 +455,34 @@ export default function AdminTeamsPage() {
       } else {
         const data = await res.json();
         setError(data.error || "Failed to reassign.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Rename event type title
+  const handleRenameEventType = async (eventTypeId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    setActionLoading(`rename-${eventTypeId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: eventTypeId, title: newTitle.trim() }),
+      });
+      if (res.ok) {
+        // Refresh event types for current team
+        const etRes = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&teamId=${expandedTeamId}`);
+        const eventTypes = await etRes.json();
+        if (Array.isArray(eventTypes)) setTeamEventTypes(eventTypes);
+        fetchAllEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to rename.");
       }
     } catch {
       setError("Something went wrong.");
@@ -942,8 +987,56 @@ export default function AdminTeamsPage() {
                                     style={{ backgroundColor: et.color }}
                                   />
                                   <div className="flex-1 min-w-0">
-                                    <span className="text-sm font-medium text-gray-900">{et.title}</span>
-                                    <span className="text-xs text-gray-400 ml-2">{et.duration_minutes} min</span>
+                                    {editingEventTypeId === et.id ? (
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          value={editingEventTypeTitle}
+                                          onChange={(e) => setEditingEventTypeTitle(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              handleRenameEventType(et.id, editingEventTypeTitle);
+                                              setEditingEventTypeId(null);
+                                            }
+                                            if (e.key === "Escape") setEditingEventTypeId(null);
+                                          }}
+                                          autoFocus
+                                          className="text-sm font-medium text-gray-900 bg-white border border-indigo-300 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-100 w-full"
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            handleRenameEventType(et.id, editingEventTypeTitle);
+                                            setEditingEventTypeId(null);
+                                          }}
+                                          className="text-indigo-500 hover:text-indigo-700"
+                                          title="Save"
+                                        >
+                                          <Check className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingEventTypeId(null)}
+                                          className="text-gray-400 hover:text-gray-600"
+                                          title="Cancel"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-sm font-medium text-gray-900">{et.title}</span>
+                                        <button
+                                          onClick={() => {
+                                            setEditingEventTypeId(et.id);
+                                            setEditingEventTypeTitle(et.title);
+                                          }}
+                                          className="text-gray-300 hover:text-indigo-500 transition-colors"
+                                          title="Rename event type"
+                                        >
+                                          <Pencil className="w-3 h-3" />
+                                        </button>
+                                        <span className="text-xs text-gray-400 ml-1">{et.duration_minutes} min</span>
+                                      </div>
+                                    )}
                                   </div>
                                   {/* Move to another team */}
                                   {allTeamsForReassign.length > 1 && (
