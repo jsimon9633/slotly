@@ -48,7 +48,7 @@ interface EventTypeData {
   duration_minutes: number;
   color: string;
   is_active: boolean;
-  team_id: string | null;
+  team_ids: string[];
 }
 
 interface AllMember {
@@ -76,7 +76,6 @@ export default function AdminTeamsPage() {
   const [teamEventTypes, setTeamEventTypes] = useState<EventTypeData[]>([]);
   const [allMembers, setAllMembers] = useState<AllMember[]>([]);
   const [allEventTypes, setAllEventTypes] = useState<EventTypeData[]>([]);
-  const [allTeamsForReassign, setAllTeamsForReassign] = useState<TeamData[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   // Edit state
@@ -130,7 +129,6 @@ export default function AdminTeamsPage() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setTeams(data);
-        setAllTeamsForReassign(data);
       }
     } catch {
       setError("Failed to load teams.");
@@ -139,7 +137,6 @@ export default function AdminTeamsPage() {
     }
   }, [token]);
 
-  // Fetch all members from team_members table (not join_requests)
   const fetchAllMembers = useCallback(async () => {
     if (!token) return;
     try {
@@ -153,7 +150,6 @@ export default function AdminTeamsPage() {
     }
   }, [token]);
 
-  // Fetch ALL event types (for assigning unassigned ones)
   const fetchAllEventTypes = useCallback(async () => {
     if (!token) return;
     try {
@@ -248,7 +244,7 @@ export default function AdminTeamsPage() {
   };
 
   // Create new team — step 1: name + description, step 2: add members
-  // Auto-assigns all event types to the new team
+  // Auto-assigns all event types to the new team via join table
   const handleCreateTeam = async () => {
     if (!newName.trim()) return;
     setCreating(true);
@@ -266,12 +262,12 @@ export default function AdminTeamsPage() {
         const team = await res.json();
         setNewTeamId(team.id);
 
-        // Auto-assign all event types to the new team
+        // Auto-assign all event types to the new team via join table
         for (const et of allEventTypes) {
-          await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
-            method: "PATCH",
+          await fetch(`/api/admin/team-event-links?token=${encodeURIComponent(token)}`, {
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: et.id, team_id: team.id }),
+            body: JSON.stringify({ team_id: team.id, event_type_id: et.id }),
           });
         }
 
@@ -292,7 +288,6 @@ export default function AdminTeamsPage() {
   // Add selected members to newly created team
   const handleAddCreateMembers = async () => {
     if (!newTeamId || selectedCreateMembers.length === 0) {
-      // Skip — just close
       resetCreateForm();
       return;
     }
@@ -324,7 +319,6 @@ export default function AdminTeamsPage() {
     setSelectedCreateMembers([]);
   };
 
-  // Toggle member selection in create flow
   const toggleCreateMember = (memberId: string) => {
     setSelectedCreateMembers((prev) =>
       prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
@@ -368,7 +362,6 @@ export default function AdminTeamsPage() {
         body: JSON.stringify({ team_member_id: memberId }),
       });
       if (res.ok) {
-        // Refresh detail
         const membersRes = await fetch(`/api/admin/teams/${teamId}/members?token=${encodeURIComponent(token)}`);
         const members = await membersRes.json();
         if (Array.isArray(members)) setTeamMembers(members);
@@ -408,15 +401,15 @@ export default function AdminTeamsPage() {
     }
   };
 
-  // Assign event type to this team
-  const handleAssignEventType = async (eventTypeId: string, teamId: string) => {
-    setActionLoading(`assign-${eventTypeId}`);
+  // Add event type to team via join table
+  const handleLinkEventType = async (eventTypeId: string, teamId: string) => {
+    setActionLoading(`link-${eventTypeId}`);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
-        method: "PATCH",
+      const res = await fetch(`/api/admin/team-event-links?token=${encodeURIComponent(token)}`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: eventTypeId, team_id: teamId }),
+        body: JSON.stringify({ team_id: teamId, event_type_id: eventTypeId }),
       });
       if (res.ok) {
         // Refresh event types for current team
@@ -427,7 +420,7 @@ export default function AdminTeamsPage() {
         fetchAllEventTypes();
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to assign event type.");
+        setError(data.error || "Failed to add event type.");
       }
     } catch {
       setError("Something went wrong.");
@@ -436,25 +429,23 @@ export default function AdminTeamsPage() {
     }
   };
 
-  // Reassign event type to another team
-  const handleReassignEventType = async (eventTypeId: string, newTeamId: string) => {
-    setActionLoading(`reassign-${eventTypeId}`);
+  // Remove event type from team via join table
+  const handleUnlinkEventType = async (eventTypeId: string, teamId: string) => {
+    setActionLoading(`unlink-${eventTypeId}`);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
-        method: "PATCH",
+      const res = await fetch(`/api/admin/team-event-links?token=${encodeURIComponent(token)}`, {
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: eventTypeId, team_id: newTeamId || null }),
+        body: JSON.stringify({ team_id: teamId, event_type_id: eventTypeId }),
       });
       if (res.ok) {
-        const etRes = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&teamId=${expandedTeamId}`);
-        const eventTypes = await etRes.json();
-        if (Array.isArray(eventTypes)) setTeamEventTypes(eventTypes);
+        setTeamEventTypes((prev) => prev.filter((et) => et.id !== eventTypeId));
         fetchTeams();
         fetchAllEventTypes();
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to reassign.");
+        setError(data.error || "Failed to remove event type.");
       }
     } catch {
       setError("Something went wrong.");
@@ -475,7 +466,6 @@ export default function AdminTeamsPage() {
         body: JSON.stringify({ id: eventTypeId, title: newTitle.trim() }),
       });
       if (res.ok) {
-        // Refresh event types for current team
         const etRes = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&teamId=${expandedTeamId}`);
         const eventTypes = await etRes.json();
         if (Array.isArray(eventTypes)) setTeamEventTypes(eventTypes);
@@ -491,39 +481,14 @@ export default function AdminTeamsPage() {
     }
   };
 
-  // Remove event type from team (set team_id to null)
-  const handleUnassignEventType = async (eventTypeId: string) => {
-    setActionLoading(`unassign-${eventTypeId}`);
-    setError(null);
-    try {
-      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: eventTypeId, team_id: null }),
-      });
-      if (res.ok) {
-        setTeamEventTypes((prev) => prev.filter((et) => et.id !== eventTypeId));
-        fetchTeams();
-        fetchAllEventTypes();
-      } else {
-        const data = await res.json();
-        setError(data.error || "Failed to remove event type.");
-      }
-    } catch {
-      setError("Something went wrong.");
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // Members not in current team (for "add member" dropdown)
+  // Members not in current team
   const availableMembers = allMembers.filter(
     (m) => !teamMembers.some((tm) => tm.id === m.id)
   );
 
-  // Event types not assigned to any team or assigned to a different team (for "assign" dropdown)
-  const unassignedEventTypes = allEventTypes.filter(
-    (et) => !et.team_id || (expandedTeamId && et.team_id !== expandedTeamId)
+  // Event types not yet assigned to this team (but may be in other teams)
+  const unlinkedEventTypes = allEventTypes.filter(
+    (et) => !teamEventTypes.some((tet) => tet.id === et.id)
   );
 
   // Auth gate
@@ -938,7 +903,6 @@ export default function AdminTeamsPage() {
                             </div>
                           )}
 
-                          {/* Add member dropdown */}
                           {availableMembers.length > 0 && (
                             <div className="mt-3">
                               <select
@@ -973,128 +937,128 @@ export default function AdminTeamsPage() {
                             <Calendar className="w-3.5 h-3.5" />
                             Event Types ({teamEventTypes.length})
                           </h4>
+                          <p className="text-xs text-gray-400 mb-2">
+                            Event types can belong to multiple teams.
+                          </p>
                           {teamEventTypes.length === 0 ? (
                             <p className="text-sm text-gray-400 py-2">No event types assigned to this team.</p>
                           ) : (
                             <div className="space-y-2">
-                              {teamEventTypes.map((et) => (
-                                <div
-                                  key={et.id}
-                                  className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5"
-                                >
+                              {teamEventTypes.map((et) => {
+                                // Show which other teams this event type belongs to
+                                const otherTeams = (et.team_ids || [])
+                                  .filter((tid: string) => tid !== team.id)
+                                  .map((tid: string) => teams.find((t) => t.id === tid))
+                                  .filter(Boolean);
+
+                                return (
                                   <div
-                                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                    style={{ backgroundColor: et.color }}
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    {editingEventTypeId === et.id ? (
-                                      <div className="flex items-center gap-2">
-                                        <input
-                                          type="text"
-                                          value={editingEventTypeTitle}
-                                          onChange={(e) => setEditingEventTypeTitle(e.target.value)}
-                                          onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
+                                    key={et.id}
+                                    className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5"
+                                  >
+                                    <div
+                                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                      style={{ backgroundColor: et.color }}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      {editingEventTypeId === et.id ? (
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            value={editingEventTypeTitle}
+                                            onChange={(e) => setEditingEventTypeTitle(e.target.value)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter") {
+                                                handleRenameEventType(et.id, editingEventTypeTitle);
+                                                setEditingEventTypeId(null);
+                                              }
+                                              if (e.key === "Escape") setEditingEventTypeId(null);
+                                            }}
+                                            autoFocus
+                                            className="text-sm font-medium text-gray-900 bg-white border border-indigo-300 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-100 w-full"
+                                          />
+                                          <button
+                                            onClick={() => {
                                               handleRenameEventType(et.id, editingEventTypeTitle);
                                               setEditingEventTypeId(null);
-                                            }
-                                            if (e.key === "Escape") setEditingEventTypeId(null);
-                                          }}
-                                          autoFocus
-                                          className="text-sm font-medium text-gray-900 bg-white border border-indigo-300 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-100 w-full"
-                                        />
-                                        <button
-                                          onClick={() => {
-                                            handleRenameEventType(et.id, editingEventTypeTitle);
-                                            setEditingEventTypeId(null);
-                                          }}
-                                          className="text-indigo-500 hover:text-indigo-700"
-                                          title="Save"
-                                        >
-                                          <Check className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                          onClick={() => setEditingEventTypeId(null)}
-                                          className="text-gray-400 hover:text-gray-600"
-                                          title="Cancel"
-                                        >
-                                          <X className="w-4 h-4" />
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-sm font-medium text-gray-900">{et.title}</span>
-                                        <button
-                                          onClick={() => {
-                                            setEditingEventTypeId(et.id);
-                                            setEditingEventTypeTitle(et.title);
-                                          }}
-                                          className="text-gray-300 hover:text-indigo-500 transition-colors"
-                                          title="Rename event type"
-                                        >
-                                          <Pencil className="w-3 h-3" />
-                                        </button>
-                                        <span className="text-xs text-gray-400 ml-1">{et.duration_minutes} min</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {/* Move to another team */}
-                                  {allTeamsForReassign.length > 1 && (
-                                    <select
-                                      onChange={(e) => {
-                                        if (e.target.value && e.target.value !== team.id) {
-                                          handleReassignEventType(et.id, e.target.value);
-                                          e.target.value = team.id;
-                                        }
-                                      }}
-                                      defaultValue={team.id}
-                                      disabled={actionLoading === `reassign-${et.id}`}
-                                      className="text-xs bg-white border border-gray-200 rounded-md px-2 py-1 text-gray-500 focus:border-indigo-400 outline-none disabled:opacity-50"
-                                      title="Move to another team"
+                                            }}
+                                            className="text-indigo-500 hover:text-indigo-700"
+                                            title="Save"
+                                          >
+                                            <Check className="w-4 h-4" />
+                                          </button>
+                                          <button
+                                            onClick={() => setEditingEventTypeId(null)}
+                                            className="text-gray-400 hover:text-gray-600"
+                                            title="Cancel"
+                                          >
+                                            <X className="w-4 h-4" />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-sm font-medium text-gray-900">{et.title}</span>
+                                            <button
+                                              onClick={() => {
+                                                setEditingEventTypeId(et.id);
+                                                setEditingEventTypeTitle(et.title);
+                                              }}
+                                              className="text-gray-300 hover:text-indigo-500 transition-colors"
+                                              title="Rename event type"
+                                            >
+                                              <Pencil className="w-3 h-3" />
+                                            </button>
+                                            <span className="text-xs text-gray-400 ml-1">{et.duration_minutes} min</span>
+                                          </div>
+                                          {otherTeams.length > 0 && (
+                                            <span className="text-[10px] text-gray-400">
+                                              Also in: {otherTeams.map((t: any) => t.name).join(", ")}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <button
+                                      onClick={() => handleUnlinkEventType(et.id, team.id)}
+                                      disabled={actionLoading === `unlink-${et.id}`}
+                                      className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                                      title="Remove from this team"
                                     >
-                                      {allTeamsForReassign.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                          {t.id === team.id ? `${t.name} (current)` : t.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )}
-                                  <button
-                                    onClick={() => handleUnassignEventType(et.id)}
-                                    disabled={actionLoading === `unassign-${et.id}`}
-                                    className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
-                                    title="Remove from team"
-                                  >
-                                    {actionLoading === `unassign-${et.id}` ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <X className="w-4 h-4" />
-                                    )}
-                                  </button>
-                                </div>
-                              ))}
+                                      {actionLoading === `unlink-${et.id}` ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <X className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 
-                          {/* Assign event type dropdown */}
-                          {unassignedEventTypes.length > 0 && (
+                          {/* Add event type dropdown — shows event types not yet in this team */}
+                          {unlinkedEventTypes.length > 0 && (
                             <div className="mt-3">
                               <select
                                 onChange={(e) => {
                                   if (e.target.value) {
-                                    handleAssignEventType(e.target.value, team.id);
+                                    handleLinkEventType(e.target.value, team.id);
                                     e.target.value = "";
                                   }
                                 }}
                                 className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-lg focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all text-gray-500"
                                 defaultValue=""
                               >
-                                <option value="" disabled>+ Assign an event type to this team...</option>
-                                {unassignedEventTypes.map((et) => {
-                                  const currentTeam = allTeamsForReassign.find((t) => t.id === et.team_id);
+                                <option value="" disabled>+ Add an event type to this team...</option>
+                                {unlinkedEventTypes.map((et) => {
+                                  const inTeams = (et.team_ids || [])
+                                    .map((tid: string) => teams.find((t) => t.id === tid))
+                                    .filter(Boolean)
+                                    .map((t: any) => t.name);
                                   return (
                                     <option key={et.id} value={et.id}>
-                                      {et.title} ({et.duration_minutes} min){currentTeam ? ` — currently in ${currentTeam.name}` : " — unassigned"}
+                                      {et.title} ({et.duration_minutes} min){inTeams.length > 0 ? ` — in ${inTeams.join(", ")}` : " — unassigned"}
                                     </option>
                                   );
                                 })}
@@ -1109,7 +1073,7 @@ export default function AdminTeamsPage() {
                             <div className="flex items-center gap-3 bg-red-50 rounded-lg px-4 py-3">
                               <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
                               <span className="text-sm text-red-700 flex-1">
-                                Delete <strong>{team.name}</strong>? This removes all memberships and unassigns event types.
+                                Delete <strong>{team.name}</strong>? This removes all memberships and event type associations.
                               </span>
                               <button
                                 onClick={() => handleDeleteTeam(team.id)}

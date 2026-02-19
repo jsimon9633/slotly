@@ -34,10 +34,9 @@ export async function GET(request: NextRequest) {
             .eq("team_id", team.id)
             .eq("is_active", true),
           supabaseAdmin
-            .from("event_types")
+            .from("team_event_types")
             .select("id", { count: "exact", head: true })
-            .eq("team_id", team.id)
-            .eq("is_active", true),
+            .eq("team_id", team.id),
         ]);
 
         return {
@@ -201,10 +200,10 @@ export async function DELETE(request: NextRequest) {
     .delete()
     .eq("team_id", id);
 
-  // 2. Nullify team_id on any event types assigned to this team
+  // 2. Remove all event type associations for this team
   await supabaseAdmin
-    .from("event_types")
-    .update({ team_id: null })
+    .from("team_event_types")
+    .delete()
     .eq("team_id", id);
 
   // 3. Delete the team

@@ -25,30 +25,43 @@ async function getTeamsWithEventTypes(): Promise<TeamWithEventTypes[]> {
       .eq("is_active", true)
       .order("created_at", { ascending: true });
 
-    // Fetch ALL active event types (including unassigned)
+    // Fetch ALL active event types
     const { data: eventTypes } = await supabaseAdmin
       .from("event_types")
-      .select("id, slug, title, description, duration_minutes, color, team_id")
+      .select("id, slug, title, description, duration_minutes, color")
       .eq("is_active", true)
       .order("duration_minutes", { ascending: true });
 
+    // Fetch join table for many-to-many team ↔ event type
+    const { data: teamEventLinks } = await supabaseAdmin
+      .from("team_event_types")
+      .select("team_id, event_type_id");
+
     const allEts = eventTypes || [];
     const allTeams = teams || [];
+    const links = teamEventLinks || [];
 
-    // Build team list with their event types
+    // Build a map: team_id → event_type_ids
+    const teamToEts: Record<string, string[]> = {};
+    const assignedEtIds = new Set<string>();
+    for (const link of links) {
+      if (!teamToEts[link.team_id]) teamToEts[link.team_id] = [];
+      teamToEts[link.team_id].push(link.event_type_id);
+      assignedEtIds.add(link.event_type_id);
+    }
+
+    // Build team list with their event types (event types can appear in multiple teams)
     const result: TeamWithEventTypes[] = allTeams.map((team) => ({
       ...team,
-      event_types: allEts.filter((et: any) => et.team_id === team.id),
+      event_types: allEts.filter((et: any) => (teamToEts[team.id] || []).includes(et.id)),
     }));
 
     // Include unassigned event types — assign them to the first team, or a virtual default
-    const unassigned = allEts.filter((et: any) => !et.team_id);
+    const unassigned = allEts.filter((et: any) => !assignedEtIds.has(et.id));
     if (unassigned.length > 0) {
       if (allTeams.length > 0) {
-        // Add unassigned event types to the first team's list
         result[0].event_types = [...result[0].event_types, ...unassigned];
       } else {
-        // No teams exist — create a virtual "default" team entry
         result.push({
           id: "default",
           name: "Default",

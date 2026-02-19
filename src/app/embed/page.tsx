@@ -18,7 +18,7 @@ interface EventTypeData {
   description: string | null;
   duration_minutes: number;
   color: string;
-  team_id: string | null;
+  team_ids: string[];
 }
 
 const TEAM_COLORS = [
@@ -88,13 +88,13 @@ export default function EmbedPage() {
 
   const hasTeams = teams.length > 0;
 
-  // Group event types by team
+  // Group event types by team using team_ids array (many-to-many)
   const teamEventTypes = (teamId: string) =>
-    eventTypes.filter((et) => et.team_id === teamId);
+    eventTypes.filter((et) => (et.team_ids || []).includes(teamId));
 
-  // Unassigned event types
+  // Unassigned event types (not in any team)
   const unassigned = eventTypes.filter(
-    (et) => !et.team_id || !teams.some((t) => t.id === et.team_id)
+    (et) => !et.team_ids || et.team_ids.length === 0
   );
 
   return (

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { unauthorized, badRequest, serverError } from "@/lib/api-errors";
+import { unauthorized, badRequest, serverError, sanitizeString } from "@/lib/api-errors";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
-// GET — list all event types with scheduling settings
+// GET — list event types, optionally filtered by team (via join table)
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
@@ -12,25 +12,133 @@ export async function GET(request: NextRequest) {
     return unauthorized();
   }
 
-  // Optional team filter
   const teamId = url.searchParams.get("teamId");
 
-  let query = supabaseAdmin
-    .from("event_types")
-    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id")
-    .order("title");
-
   if (teamId) {
-    query = query.eq("team_id", teamId);
+    // Get event types for a specific team via join table
+    const { data: links, error: linkErr } = await supabaseAdmin
+      .from("team_event_types")
+      .select("event_type_id")
+      .eq("team_id", teamId);
+
+    if (linkErr) {
+      return serverError("Failed to load team event links.", linkErr, "Admin event-types GET");
+    }
+
+    const etIds = (links || []).map((l: any) => l.event_type_id);
+    if (etIds.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("event_types")
+      .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
+      .in("id", etIds)
+      .order("title");
+
+    if (error) {
+      return serverError("Failed to load event types.", error, "Admin event-types GET");
+    }
+
+    return NextResponse.json(data);
   }
 
-  const { data, error } = await query;
+  // No team filter — return all event types with their team associations
+  const { data, error } = await supabaseAdmin
+    .from("event_types")
+    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
+    .order("title");
 
   if (error) {
     return serverError("Failed to load event types.", error, "Admin event-types GET");
   }
 
-  return NextResponse.json(data);
+  // Fetch all join table entries to include team_ids per event type
+  const { data: allLinks } = await supabaseAdmin
+    .from("team_event_types")
+    .select("event_type_id, team_id");
+
+  const linkMap: Record<string, string[]> = {};
+  for (const link of allLinks || []) {
+    if (!linkMap[link.event_type_id]) linkMap[link.event_type_id] = [];
+    linkMap[link.event_type_id].push(link.team_id);
+  }
+
+  const enriched = (data || []).map((et: any) => ({
+    ...et,
+    team_ids: linkMap[et.id] || [],
+  }));
+
+  return NextResponse.json(enriched);
+}
+
+// POST — create a new custom event type
+export async function POST(request: NextRequest) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (token !== ADMIN_TOKEN) {
+    return unauthorized();
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("Invalid request body");
+  }
+
+  const { title, duration_minutes, color, description } = body;
+
+  if (!title || typeof title !== "string" || title.trim().length < 2) {
+    return badRequest("Title is required (min 2 characters)");
+  }
+
+  const dur = parseInt(duration_minutes);
+  if (isNaN(dur) || dur < 5 || dur > 480) {
+    return badRequest("Duration must be 5-480 minutes");
+  }
+
+  const cleanTitle = sanitizeString(title, 100);
+  const slug = cleanTitle
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 50);
+
+  if (!slug) {
+    return badRequest("Could not generate a valid slug from that title");
+  }
+
+  const cleanColor = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#6366f1";
+  const cleanDescription = description ? sanitizeString(String(description), 500) : null;
+
+  const { data: et, error } = await supabaseAdmin
+    .from("event_types")
+    .insert({
+      title: cleanTitle,
+      slug,
+      duration_minutes: dur,
+      color: cleanColor,
+      description: cleanDescription,
+      is_active: true,
+      is_locked: false,
+      before_buffer_mins: 5,
+      after_buffer_mins: 5,
+      min_notice_hours: 1,
+      max_daily_bookings: null,
+      max_advance_days: 10,
+    })
+    .select("id, slug, title, duration_minutes, color, is_active")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return badRequest("An event type with this slug already exists");
+    }
+    return serverError("Failed to create event type.", error, "Admin event-types POST");
+  }
+
+  return NextResponse.json(et, { status: 201 });
 }
 
 // PATCH — update scheduling settings for one event type
@@ -48,13 +156,12 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, title, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id } = body;
+  const { id, title, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing event type id");
   }
 
-  // Validate fields
   const updates: Record<string, any> = {};
 
   if (title !== undefined) {
@@ -113,16 +220,6 @@ export async function PATCH(request: NextRequest) {
     updates.max_advance_days = val;
   }
 
-  if (team_id !== undefined) {
-    if (team_id === null || team_id === "" || team_id === "null") {
-      updates.team_id = null;
-    } else if (typeof team_id === "string") {
-      updates.team_id = team_id;
-    } else {
-      return badRequest("Invalid team_id");
-    }
-  }
-
   if (Object.keys(updates).length === 0) {
     return badRequest("No valid fields to update");
   }
@@ -134,6 +231,51 @@ export async function PATCH(request: NextRequest) {
 
   if (error) {
     return serverError("Failed to update event type settings.", error, "Admin event-types PATCH");
+  }
+
+  return NextResponse.json({ success: true });
+}
+
+/**
+ * DELETE /api/admin/event-types — Delete an event type.
+ *
+ * Body: { id: string }
+ *
+ * Also cleans up join table entries (CASCADE handles this if FK is set,
+ * but we do it explicitly for safety).
+ */
+export async function DELETE(request: NextRequest) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (token !== ADMIN_TOKEN) {
+    return unauthorized();
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("Invalid request body");
+  }
+
+  const { id } = body;
+  if (!id || typeof id !== "string") {
+    return badRequest("Missing event type id");
+  }
+
+  // Clean up join table first
+  await supabaseAdmin
+    .from("team_event_types")
+    .delete()
+    .eq("event_type_id", id);
+
+  const { error } = await supabaseAdmin
+    .from("event_types")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return serverError("Failed to delete event type.", error, "Admin event-types DELETE");
   }
 
   return NextResponse.json({ success: true });
