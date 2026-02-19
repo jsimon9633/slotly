@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { unauthorized, badRequest, serverError } from "@/lib/api-errors";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -27,31 +28,30 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
-  // Admin auth
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   if (token !== ADMIN_TOKEN) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return badRequest("Invalid request body.");
   }
 
   const { company_name, logo_url, primary_color, accent_color } = body;
 
   // Validate
-  if (company_name && typeof company_name !== "string") {
-    return NextResponse.json({ error: "Invalid company name" }, { status: 400 });
+  if (company_name !== undefined && typeof company_name !== "string") {
+    return badRequest("Invalid company name.");
   }
-  if (primary_color && !/^#[0-9a-fA-F]{6}$/.test(primary_color)) {
-    return NextResponse.json({ error: "Invalid primary color (use hex like #4f46e5)" }, { status: 400 });
+  if (primary_color !== undefined && primary_color && !/^#[0-9a-fA-F]{6}$/.test(primary_color)) {
+    return badRequest("Invalid primary color (use hex like #4f46e5).");
   }
-  if (accent_color && !/^#[0-9a-fA-F]{6}$/.test(accent_color)) {
-    return NextResponse.json({ error: "Invalid accent color (use hex like #3b82f6)" }, { status: 400 });
+  if (accent_color !== undefined && accent_color && !/^#[0-9a-fA-F]{6}$/.test(accent_color)) {
+    return badRequest("Invalid accent color (use hex like #3b82f6).");
   }
 
   try {
@@ -84,8 +84,7 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error("Settings update failed:", err?.message);
-    return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
+  } catch (err) {
+    return serverError("Failed to update settings.", err, "Settings PUT");
   }
 }

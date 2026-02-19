@@ -183,6 +183,16 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
     event_type: string;
   } | null>(null);
 
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "error" | "warning" | "success" } | null>(null);
+  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (message: string, type: "error" | "warning" | "success" = "error") => {
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    setToast({ message, type });
+    toastTimeout.current = setTimeout(() => setToast(null), 6000);
+  };
+
   // Form
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -327,11 +337,15 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
       if (data.success) {
         setConfirmation(data.booking);
         setStep("confirmed");
+        // Show warnings for partial failures (calendar sync, email delivery)
+        if (data.warnings && data.warnings.length > 0) {
+          showToast(data.warnings[0], "warning");
+        }
       } else {
-        alert("Booking failed: " + (data.error || "Unknown error"));
+        showToast(data.error || "Booking failed. Please try again.", "error");
       }
     } catch {
-      alert("Something went wrong. Please try again.");
+      showToast("Something went wrong. Please check your connection and try again.", "error");
     } finally {
       setBooking(false);
     }
@@ -339,6 +353,27 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
 
   return (
     <div className={`${isEmbed ? "p-2 sm:p-4" : "min-h-screen p-4"} flex items-center justify-center`}>
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl shadow-lg border animate-fade-in-up flex items-start gap-3 ${
+            toast.type === "error"
+              ? "bg-red-50 border-red-200 text-red-800"
+              : toast.type === "warning"
+              ? "bg-amber-50 border-amber-200 text-amber-800"
+              : "bg-green-50 border-green-200 text-green-800"
+          }`}
+        >
+          <span className="text-sm flex-1">{toast.message}</span>
+          <button
+            onClick={() => { setToast(null); if (toastTimeout.current) clearTimeout(toastTimeout.current); }}
+            className="text-current opacity-50 hover:opacity-80 transition-opacity flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <div className="w-full max-w-xl">
         {/* Header */}
         <div className="mb-4 sm:mb-6 animate-fade-in-up">

@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import {
+  badRequest,
+  conflict,
+  tooManyRequests,
+  serverError,
+  EMAIL_REGEX,
+  sanitizeString,
+} from "@/lib/api-errors";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_NAME_LENGTH = 100;
 const MAX_EMAIL_LENGTH = 254;
 
@@ -21,21 +28,17 @@ function isRateLimited(ip: string): boolean {
   return entry.count > RATE_LIMIT_MAX;
 }
 
-function sanitize(str: string, maxLen: number): string {
-  return str.trim().slice(0, maxLen);
-}
-
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (isRateLimited(ip)) {
-    return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+    return tooManyRequests("Too many requests. Please try again later.");
   }
 
   let body;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return badRequest("Invalid request.");
   }
 
   const { name, email, calendarShared, inviteToken } = body;
@@ -47,7 +50,7 @@ export async function POST(req: NextRequest) {
     typeof calendarShared !== "boolean" ||
     typeof inviteToken !== "string"
   ) {
-    return NextResponse.json({ error: "Invalid input." }, { status: 400 });
+    return badRequest("Invalid input.");
   }
 
   // Validate invite token format
@@ -74,19 +77,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "This invite has expired. Ask your admin for a new one." }, { status: 403 });
   }
 
-  const cleanName = sanitize(name, MAX_NAME_LENGTH);
-  const cleanEmail = sanitize(email, MAX_EMAIL_LENGTH).toLowerCase();
+  const cleanName = sanitizeString(name, MAX_NAME_LENGTH);
+  const cleanEmail = sanitizeString(email, MAX_EMAIL_LENGTH).toLowerCase();
 
   if (!cleanName || cleanName.length < 2) {
-    return NextResponse.json({ error: "Please enter your full name." }, { status: 400 });
+    return badRequest("Please enter your full name.");
   }
 
   if (!EMAIL_REGEX.test(cleanEmail)) {
-    return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
+    return badRequest("Please enter a valid email address.");
   }
 
   if (!calendarShared) {
-    return NextResponse.json({ error: "Please confirm you've shared your calendar." }, { status: 400 });
+    return badRequest("Please confirm you've shared your calendar.");
   }
 
   // Check for existing request with same email
@@ -98,10 +101,10 @@ export async function POST(req: NextRequest) {
 
   if (existing) {
     if (existing.status === "pending") {
-      return NextResponse.json({ error: "A request with this email is already pending." }, { status: 409 });
+      return conflict("A request with this email is already pending.");
     }
     if (existing.status === "approved") {
-      return NextResponse.json({ error: "This email is already part of the team." }, { status: 409 });
+      return conflict("This email is already part of the team.");
     }
     // If rejected, allow re-submission by updating
     const { error: updateError } = await supabaseAdmin
@@ -116,14 +119,18 @@ export async function POST(req: NextRequest) {
       .eq("id", existing.id);
 
     if (updateError) {
-      return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+      return serverError("Something went wrong. Please try again.", updateError, "Join re-submit");
     }
 
     // Mark invite as used
-    await supabaseAdmin
+    const { error: invMarkErr } = await supabaseAdmin
       .from("invite_tokens")
       .update({ is_used: true, used_by_email: cleanEmail })
       .eq("token", inviteToken);
+
+    if (invMarkErr) {
+      console.error("[Join] Failed to mark invite as used:", invMarkErr.message);
+    }
 
     return NextResponse.json({ success: true });
   }
@@ -141,16 +148,20 @@ export async function POST(req: NextRequest) {
 
   if (insertError) {
     if (insertError.code === "23505") {
-      return NextResponse.json({ error: "A request with this email already exists." }, { status: 409 });
+      return conflict("A request with this email already exists.");
     }
-    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    return serverError("Something went wrong. Please try again.", insertError, "Join insert");
   }
 
   // Mark invite as used
-  await supabaseAdmin
+  const { error: invMarkErr } = await supabaseAdmin
     .from("invite_tokens")
     .update({ is_used: true, used_by_email: cleanEmail })
     .eq("token", inviteToken);
+
+  if (invMarkErr) {
+    console.error("[Join] Failed to mark invite as used:", invMarkErr.message);
+  }
 
   return NextResponse.json({ success: true });
 }

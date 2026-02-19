@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { randomBytes } from "crypto";
+import { unauthorized, badRequest, serverError } from "@/lib/api-errors";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-admin-2024";
 
@@ -13,7 +14,7 @@ function isAuthorized(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest) {
   if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return unauthorized();
   }
 
   let body: { expiresInDays?: number } = {};
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const expiresInDays = body.expiresInDays || 7;
   if (expiresInDays < 1 || expiresInDays > 30) {
-    return NextResponse.json({ error: "Expiry must be 1-30 days." }, { status: 400 });
+    return badRequest("Expiry must be 1-30 days.");
   }
 
   // Generate a URL-safe token (16 bytes = 32 hex chars)
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json({ error: "Failed to create invite." }, { status: 500 });
+    return serverError("Failed to create invite.", error, "Admin invite POST");
   }
 
   return NextResponse.json({
@@ -54,18 +55,18 @@ export async function POST(req: NextRequest) {
 // Cancel (delete) an invite — removes from DB so the link is no longer valid
 export async function DELETE(req: NextRequest) {
   if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return unauthorized();
   }
 
   let body: { id?: string } = {};
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Missing invite ID." }, { status: 400 });
+    return badRequest("Missing invite ID.");
   }
 
-  if (!body.id) {
-    return NextResponse.json({ error: "Missing invite ID." }, { status: 400 });
+  if (!body.id || typeof body.id !== "string") {
+    return badRequest("Missing invite ID.");
   }
 
   const { error } = await supabaseAdmin
@@ -74,7 +75,7 @@ export async function DELETE(req: NextRequest) {
     .eq("id", body.id);
 
   if (error) {
-    return NextResponse.json({ error: "Failed to cancel invite." }, { status: 500 });
+    return serverError("Failed to cancel invite.", error, "Admin invite DELETE");
   }
 
   return NextResponse.json({ success: true });
@@ -83,7 +84,7 @@ export async function DELETE(req: NextRequest) {
 // List active (unused, unexpired) invites
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return unauthorized();
   }
 
   const { data, error } = await supabaseAdmin
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
     .limit(50);
 
   if (error) {
-    return NextResponse.json({ error: "Failed to fetch invites." }, { status: 500 });
+    return serverError("Failed to fetch invites.", error, "Admin invite GET");
   }
 
   return NextResponse.json(data || []);

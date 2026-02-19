@@ -1,26 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { unauthorized, badRequest, serverError } from "@/lib/api-errors";
 
-// Simple admin token check — in production, use proper auth
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-admin-2024";
 
 function isAuthorized(req: NextRequest): boolean {
   const auth = req.headers.get("authorization");
   if (auth === `Bearer ${ADMIN_TOKEN}`) return true;
-  // Also allow via query param for simple browser access
   const token = req.nextUrl.searchParams.get("token");
   return token === ADMIN_TOKEN;
 }
 
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return unauthorized();
   }
 
   const status = req.nextUrl.searchParams.get("status") || "pending";
   const validStatuses = ["pending", "approved", "rejected"];
   if (!validStatuses.includes(status)) {
-    return NextResponse.json({ error: "Invalid status filter." }, { status: 400 });
+    return badRequest("Invalid status filter. Use: pending, approved, or rejected.");
   }
 
   const { data, error } = await supabaseAdmin
@@ -30,7 +29,7 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: "Failed to fetch requests." }, { status: 500 });
+    return serverError("Failed to fetch join requests.", error, "Admin join-requests GET");
   }
 
   return NextResponse.json(data || []);
@@ -38,19 +37,19 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return unauthorized();
   }
 
   let body;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return badRequest("Invalid request body.");
   }
 
   const { id, status } = body;
   if (typeof id !== "string" || !["approved", "rejected"].includes(status)) {
-    return NextResponse.json({ error: "Invalid input." }, { status: 400 });
+    return badRequest("Invalid input. Provide a valid id and status (approved or rejected).");
   }
 
   const { error } = await supabaseAdmin
@@ -59,7 +58,7 @@ export async function PATCH(req: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: "Failed to update request." }, { status: 500 });
+    return serverError("Failed to update join request.", error, "Admin join-requests PATCH");
   }
 
   return NextResponse.json({ success: true });

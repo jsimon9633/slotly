@@ -5,6 +5,18 @@ import { createCalendarEvent } from "@/lib/google-calendar";
 import { sendBookingEmails } from "@/lib/email";
 import { fireWebhooks } from "@/lib/webhooks";
 import { addMinutes, parseISO } from "date-fns";
+import {
+  badRequest,
+  notFound,
+  conflict,
+  tooManyRequests,
+  serverError,
+  successWithWarnings,
+  classifyGoogleError,
+  validateTimezone,
+  sanitizeString,
+  EMAIL_REGEX,
+} from "@/lib/api-errors";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -24,15 +36,10 @@ function isRateLimited(ip: string): boolean {
   return entry.count > RATE_LIMIT_MAX;
 }
 
-// Validation helpers
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Validation constants
 const MAX_NAME_LENGTH = 100;
 const MAX_NOTES_LENGTH = 1000;
 const MAX_EMAIL_LENGTH = 254;
-
-function sanitizeString(str: string, maxLen: number): string {
-  return str.trim().slice(0, maxLen);
-}
 
 export async function POST(request: NextRequest) {
   // Rate limiting
@@ -42,27 +49,21 @@ export async function POST(request: NextRequest) {
     "unknown";
 
   if (isRateLimited(ip)) {
-    return NextResponse.json(
-      { error: "Too many booking requests. Please try again later." },
-      { status: 429 }
-    );
+    return tooManyRequests("Too many booking requests. Please try again later.");
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return badRequest("Invalid request body");
   }
 
   const { eventTypeSlug, startTime, timezone, name, email, phone, notes } = body;
 
   // Validate required fields
   if (!eventTypeSlug || !startTime || !timezone || !name || !email || !phone) {
-    return NextResponse.json(
-      { error: "Missing required fields" },
-      { status: 400 }
-    );
+    return badRequest("Missing required fields");
   }
 
   // Validate types
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
     typeof email !== "string" ||
     typeof phone !== "string"
   ) {
-    return NextResponse.json({ error: "Invalid field types" }, { status: 400 });
+    return badRequest("Invalid field types");
   }
 
   // Validate & sanitize inputs
@@ -84,55 +85,55 @@ export async function POST(request: NextRequest) {
   const cleanNotes = notes ? sanitizeString(String(notes), MAX_NOTES_LENGTH) : null;
 
   if (!cleanPhone || cleanPhone.replace(/\D/g, "").length < 7) {
-    return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
+    return badRequest("Invalid phone number");
   }
 
   if (!cleanName || cleanName.length < 2) {
-    return NextResponse.json({ error: "Name is too short" }, { status: 400 });
+    return badRequest("Name is too short");
   }
 
   if (!EMAIL_REGEX.test(cleanEmail)) {
-    return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
+    return badRequest("Invalid email address");
   }
 
   // Validate slug format
   if (!/^[a-z0-9-]+$/.test(eventTypeSlug)) {
-    return NextResponse.json({ error: "Invalid event type" }, { status: 400 });
+    return badRequest("Invalid event type");
   }
 
-  // Validate timezone
-  if (!/^[A-Za-z_/]+$/.test(timezone)) {
-    return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
+  // Validate timezone using IANA check
+  if (!validateTimezone(timezone)) {
+    return badRequest("Invalid timezone. Please select a valid timezone.");
   }
 
   // Validate startTime is a valid ISO date
   const parsedStart = parseISO(startTime);
   if (isNaN(parsedStart.getTime())) {
-    return NextResponse.json({ error: "Invalid start time" }, { status: 400 });
+    return badRequest("Invalid start time");
   }
 
   // Prevent booking in the past
   if (parsedStart.getTime() < Date.now() - 60000) {
-    return NextResponse.json({ error: "Cannot book in the past" }, { status: 400 });
+    return badRequest("Cannot book in the past");
   }
 
   // Prevent booking too far in the future (90 days)
   const maxFuture = Date.now() + 90 * 24 * 60 * 60 * 1000;
   if (parsedStart.getTime() > maxFuture) {
-    return NextResponse.json({ error: "Cannot book more than 90 days ahead" }, { status: 400 });
+    return badRequest("Cannot book more than 90 days ahead");
   }
 
   try {
     // Get event type — only needed fields
-    const { data: eventType } = await supabaseAdmin
+    const { data: eventType, error: etError } = await supabaseAdmin
       .from("event_types")
       .select("id, title, duration_minutes, max_daily_bookings")
       .eq("slug", eventTypeSlug)
       .eq("is_active", true)
       .single();
 
-    if (!eventType) {
-      return NextResponse.json({ error: "Event type not found" }, { status: 404 });
+    if (etError || !eventType) {
+      return notFound("Event type");
     }
 
     // Daily meeting limit check
@@ -142,7 +143,7 @@ export async function POST(request: NextRequest) {
       const dayEnd = new Date(parsedStart);
       dayEnd.setUTCHours(23, 59, 59, 999);
 
-      const { count } = await supabaseAdmin
+      const { count, error: countError } = await supabaseAdmin
         .from("bookings")
         .select("id", { count: "exact", head: true })
         .eq("event_type_id", eventType.id)
@@ -150,17 +151,21 @@ export async function POST(request: NextRequest) {
         .gte("start_time", dayStart.toISOString())
         .lte("start_time", dayEnd.toISOString());
 
-      if (count !== null && count >= eventType.max_daily_bookings) {
-        return NextResponse.json(
-          { error: "No more bookings available for this day" },
-          { status: 409 }
+      if (countError) {
+        return serverError(
+          "Unable to check availability. Please try again.",
+          countError,
+          "Daily limit count query"
         );
+      }
+
+      if (count !== null && count >= eventType.max_daily_bookings) {
+        return conflict("No more bookings available for this day");
       }
     }
 
     // Round-robin: pick the team member who was booked least recently
-    // Only fetch fields we actually need
-    const { data: teamMember } = await supabaseAdmin
+    const { data: teamMember, error: tmError } = await supabaseAdmin
       .from("team_members")
       .select("id, name, email, google_calendar_id")
       .eq("is_active", true)
@@ -168,12 +173,20 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .single();
 
-    if (!teamMember) {
-      return NextResponse.json({ error: "No team members available" }, { status: 500 });
+    if (tmError || !teamMember) {
+      return serverError(
+        "No team members available to take this booking.",
+        tmError,
+        "Team member lookup"
+      );
     }
 
     const start = parsedStart;
     const end = addMinutes(start, eventType.duration_minutes);
+
+    // Track partial failures for warnings
+    let calendarSynced = true;
+    let emailSent = true;
 
     // Create Google Calendar event (with Google Meet)
     let googleEventId: string | null = null;
@@ -194,9 +207,10 @@ export async function POST(request: NextRequest) {
       meetLink = calResult.meetLink;
       meetPhone = calResult.meetPhone;
       meetPin = calResult.meetPin;
-    } catch (calErr: any) {
-      // Log error without exposing sensitive details
-      console.error("Calendar event creation failed for booking");
+    } catch (calErr: unknown) {
+      calendarSynced = false;
+      const classified = classifyGoogleError(calErr);
+      console.error(`[Booking] Calendar event creation failed (${classified.type}):`, calErr instanceof Error ? calErr.message : calErr);
     }
 
     // Generate unique manage token for reschedule/cancel links
@@ -222,19 +236,26 @@ export async function POST(request: NextRequest) {
       .select("id, start_time, end_time, manage_token")
       .single();
 
-    if (bookingError) {
-      console.error("Booking save failed");
-      return NextResponse.json({ error: "Failed to save booking" }, { status: 500 });
+    if (bookingError || !booking) {
+      return serverError(
+        "Failed to save your booking. Please try again.",
+        bookingError,
+        "Booking insert"
+      );
     }
 
     // Update round-robin: mark this team member as most recently booked
-    await supabaseAdmin
+    const { error: rrError } = await supabaseAdmin
       .from("team_members")
       .update({ last_booked_at: new Date().toISOString() })
       .eq("id", teamMember.id);
 
+    if (rrError) {
+      console.error("[Booking] Round-robin update failed:", rrError.message);
+      // Non-blocking — booking is saved, just round-robin tracking is off
+    }
+
     // Send confirmation + team member alert emails
-    // Must await in serverless — Lambda freezes after response is sent
     try {
       await sendBookingEmails({
         inviteeName: cleanName,
@@ -253,8 +274,8 @@ export async function POST(request: NextRequest) {
         meetPin,
       });
     } catch (emailErr) {
-      console.error("Email send failed:", emailErr);
-      // Don't block booking — emails are best-effort
+      emailSent = false;
+      console.error("[Booking] Email send failed:", emailErr instanceof Error ? emailErr.message : emailErr);
     }
 
     // Fire webhooks (best-effort, don't block response)
@@ -268,20 +289,29 @@ export async function POST(request: NextRequest) {
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       timezone,
-    }).catch((err) => console.error("Webhook fire failed:", err));
+    }).catch((err) => console.error("[Booking] Webhook fire failed:", err instanceof Error ? err.message : err));
 
-    // Return minimal confirmation — no internal IDs, no emails
-    return NextResponse.json({
-      success: true,
-      calendar_event_created: !!googleEventId,
-      booking: {
-        start_time: booking.start_time,
-        end_time: booking.end_time,
-        team_member_name: teamMember.name.split(" ")[0], // First name only
-        event_type: eventType.title,
+    // Return confirmation with partial failure warnings
+    return successWithWarnings(
+      {
+        success: true,
+        booking: {
+          start_time: booking.start_time,
+          end_time: booking.end_time,
+          team_member_name: teamMember.name.split(" ")[0],
+          event_type: eventType.title,
+        },
       },
-    });
-  } catch {
-    return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
+      {
+        calendar_synced: calendarSynced,
+        email_sent: emailSent,
+      }
+    );
+  } catch (err) {
+    return serverError(
+      "Something went wrong while creating your booking. Please try again.",
+      err,
+      "Booking POST"
+    );
   }
 }
