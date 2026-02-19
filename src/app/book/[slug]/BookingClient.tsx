@@ -585,9 +585,24 @@ export default function BookingClient({ eventType, settings, slug }: BookingClie
                           setSelectedSlot(slot);
                           setStep("form");
                         }}
-                        className={`py-2 sm:py-2.5 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 animate-fade-in-up stagger-${Math.min(i + 1, 9)} hover:scale-[1.03] active:scale-95 bg-gray-50 hover:bg-blue-50 hover:text-blue-600 hover:shadow-sm text-gray-700`}
+                        className={`relative py-2 sm:py-2.5 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 animate-fade-in-up stagger-${Math.min(i + 1, 9)} hover:scale-[1.03] active:scale-95 ${
+                          slot.label === "popular"
+                            ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300"
+                            : slot.label === "recommended"
+                            ? "bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 hover:border-blue-300"
+                            : "bg-gray-50 hover:bg-blue-50 hover:text-blue-600 hover:shadow-sm text-gray-700"
+                        }`}
                       >
                         {new Date(slot.start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                        {slot.label && (
+                          <span className={`absolute -top-1.5 -right-1 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                            slot.label === "popular"
+                              ? "bg-emerald-500 text-white"
+                              : "bg-blue-500 text-white"
+                          }`}>
+                            {slot.label === "popular" ? "Popular" : "Top"}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>

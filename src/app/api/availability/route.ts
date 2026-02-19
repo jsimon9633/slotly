@@ -7,6 +7,7 @@ import {
   serverError,
   validateTimezone,
 } from "@/lib/api-errors";
+import { getSmartSchedulingData } from "@/lib/smart-scheduling";
 
 // Basic input validation
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -82,8 +83,30 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // Strip internal member IDs — clients don't need to know which team member is available
-    const slots = rawSlots.map(({ start, end }) => ({ start, end }));
+    // Get smart scheduling recommendations for this date
+    const smartData = await getSmartSchedulingData(date, timezone);
+
+    // Strip internal member IDs + annotate with smart labels
+    const slots = rawSlots.map(({ start, end }) => {
+      const slotDate = new Date(start);
+      // Get hour in the requested timezone
+      let hour = slotDate.getUTCHours();
+      try {
+        const localHour = slotDate.toLocaleString("en-US", {
+          timeZone: timezone,
+          hour: "numeric",
+          hour12: false,
+        });
+        hour = parseInt(localHour) || hour;
+      } catch { /* fallback to UTC */ }
+
+      const smart = smartData.get(hour);
+      return {
+        start,
+        end,
+        ...(smart?.label ? { label: smart.label } : {}),
+      };
+    });
 
     return NextResponse.json({
       date,
