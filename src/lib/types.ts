@@ -40,6 +40,7 @@ export interface EventType {
   max_daily_bookings: number | null;
   max_advance_days: number;
   team_id: string;
+  booking_questions?: BookingQuestion[];
 }
 
 export interface Webhook {
@@ -81,6 +82,7 @@ export interface Booking {
   reminder_sent_at: string | null;
   outcome: "completed" | "no_show" | "cancelled" | null;
   outcome_recorded_at: string | null;
+  custom_answers?: Record<string, any>;
 }
 
 export interface SiteSettings {
@@ -89,6 +91,28 @@ export interface SiteSettings {
   logo_url: string | null;
   primary_color: string;  // hex color like "#4f46e5"
   accent_color: string;   // secondary/accent like "#3b82f6"
+}
+
+export interface BookingQuestion {
+  id: string;
+  type: "text" | "dropdown" | "checkbox";
+  label: string;
+  required: boolean;
+  options?: string[]; // for dropdown type
+}
+
+export interface Workflow {
+  id: string;
+  event_type_id: string;
+  name: string;
+  trigger: "on_booking" | "on_cancel" | "on_reschedule" | "before_meeting" | "after_meeting";
+  trigger_minutes: number;
+  action: "send_email" | "send_sms";
+  recipient: "invitee" | "host" | "both";
+  subject: string | null;
+  body: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface TimeSlot {

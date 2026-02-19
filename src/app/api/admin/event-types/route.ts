@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("event_types")
-      .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
+      .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
       .in("id", etIds)
       .order("title");
 
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   // No team filter — return all event types with their team associations
   const { data, error } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days")
+    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
     .order("title");
 
   if (error) {
@@ -156,7 +156,7 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, title, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days } = body;
+  const { id, title, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing event type id");
@@ -218,6 +218,29 @@ export async function PATCH(request: NextRequest) {
       return badRequest("Advance days must be 2-30");
     }
     updates.max_advance_days = val;
+  }
+
+  if (booking_questions !== undefined) {
+    if (!Array.isArray(booking_questions)) {
+      return badRequest("booking_questions must be an array");
+    }
+    // Validate each question
+    const validTypes = ["text", "dropdown", "checkbox"];
+    for (const q of booking_questions) {
+      if (!q.id || typeof q.id !== "string") {
+        return badRequest("Each question must have a string id");
+      }
+      if (!validTypes.includes(q.type)) {
+        return badRequest(`Invalid question type: ${q.type}`);
+      }
+      if (!q.label || typeof q.label !== "string" || q.label.trim().length < 1) {
+        return badRequest("Each question must have a label");
+      }
+      if (q.type === "dropdown" && (!Array.isArray(q.options) || q.options.length < 1)) {
+        return badRequest("Dropdown questions must have at least one option");
+      }
+    }
+    updates.booking_questions = booking_questions;
   }
 
   if (Object.keys(updates).length === 0) {

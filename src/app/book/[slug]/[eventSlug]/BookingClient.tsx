@@ -211,6 +211,10 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const [topic, setTopic] = useState("");
   const [notes, setNotes] = useState("");
   const [showTopicSuggestions, setShowTopicSuggestions] = useState(false);
+  const [customAnswers, setCustomAnswers] = useState<Record<string, any>>({});
+
+  // Dynamic booking questions from event type config
+  const bookingQuestions = eventType.booking_questions || [];
 
   // Close country picker on click outside
   useEffect(() => {
@@ -314,11 +318,28 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
       .catch(() => setLoadingSlots(false));
   }, [selectedDate, slug, teamSlug, timezone]);
 
+  // Check if all required custom questions are answered
+  const requiredQuestionsComplete = bookingQuestions
+    .filter((q) => q.required)
+    .every((q) => {
+      const val = customAnswers[q.id];
+      if (q.type === "checkbox") return val === true;
+      return val && String(val).trim() !== "";
+    });
+
   const handleBook = async () => {
-    if (!selectedSlot || !name || !email || !phone) return;
+    if (!selectedSlot || !name || !email || !phone || !requiredQuestionsComplete) return;
     setBooking(true);
 
     const fullPhone = `${selectedCountry.dial}${phone}`;
+
+    // Only include non-empty custom answers
+    const filteredAnswers: Record<string, any> = {};
+    for (const [k, v] of Object.entries(customAnswers)) {
+      if (v !== "" && v !== false && v !== undefined && v !== null) {
+        filteredAnswers[k] = v;
+      }
+    }
 
     try {
       const res = await fetch("/api/book", {
@@ -333,6 +354,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
           email,
           phone: fullPhone,
           notes: [topic && `Topic: ${topic}`, notes].filter(Boolean).join("\n") || undefined,
+          custom_answers: Object.keys(filteredAnswers).length > 0 ? filteredAnswers : undefined,
         }),
       });
 
@@ -794,15 +816,56 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                 />
               </div>
 
+              {/* Dynamic Booking Questions */}
+              {bookingQuestions.map((q, qi) => (
+                <div key={q.id} className="animate-fade-in-up" style={{ animationDelay: `${0.28 + qi * 0.04}s` }}>
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    {q.label}{q.required && " *"}
+                  </label>
+                  {q.type === "text" && (
+                    <input
+                      type="text"
+                      value={customAnswers[q.id] || ""}
+                      onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                      placeholder={`Enter ${q.label.toLowerCase()}`}
+                      className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm sm:text-base"
+                    />
+                  )}
+                  {q.type === "dropdown" && (
+                    <select
+                      value={customAnswers[q.id] || ""}
+                      onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                      className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm sm:text-base bg-white"
+                    >
+                      <option value="">Select...</option>
+                      {(q.options || []).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  )}
+                  {q.type === "checkbox" && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!customAnswers[q.id]}
+                        onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [q.id]: e.target.checked }))}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-600">Yes</span>
+                    </label>
+                  )}
+                </div>
+              ))}
+
               <button
                 onClick={handleBook}
-                disabled={!name || !email || !phone || booking}
+                disabled={!name || !email || !phone || !requiredQuestionsComplete || booking}
                 className={`w-full py-2.5 sm:py-3 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-sm sm:text-base animate-fade-in-up ${
-                  !booking && name && email && phone ? "hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]" : ""
+                  !booking && name && email && phone && requiredQuestionsComplete ? "hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]" : ""
                 }`}
                 style={{
                   animationDelay: "0.3s",
-                  backgroundColor: !name || !email || !phone || booking ? undefined : settings.primary_color,
+                  backgroundColor: !name || !email || !phone || !requiredQuestionsComplete || booking ? undefined : settings.primary_color,
                 }}
               >
                 {booking ? (

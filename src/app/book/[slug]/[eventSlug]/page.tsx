@@ -114,7 +114,7 @@ async function getEventType(slug: string, teamId: string): Promise<EventType | n
     const { data } = await supabaseAdmin
       .from("event_types")
       .select(
-        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id"
+        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id, booking_questions"
       )
       .eq("slug", slug)
       .eq("team_id", teamId)
@@ -132,7 +132,7 @@ async function getUnassignedEventType(slug: string): Promise<EventType | null> {
     const { data } = await supabaseAdmin
       .from("event_types")
       .select(
-        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id"
+        "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id, booking_questions"
       )
       .eq("slug", slug)
       .is("team_id", null)
