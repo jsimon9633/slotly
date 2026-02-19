@@ -25,19 +25,43 @@ async function getTeamsWithEventTypes(): Promise<TeamWithEventTypes[]> {
       .eq("is_active", true)
       .order("created_at", { ascending: true });
 
-    if (!teams || teams.length === 0) return [];
-
-    // Fetch event types for all teams
+    // Fetch ALL active event types (including unassigned)
     const { data: eventTypes } = await supabaseAdmin
       .from("event_types")
       .select("id, slug, title, description, duration_minutes, color, team_id")
       .eq("is_active", true)
       .order("duration_minutes", { ascending: true });
 
-    return teams.map((team) => ({
+    const allEts = eventTypes || [];
+    const allTeams = teams || [];
+
+    // Build team list with their event types
+    const result: TeamWithEventTypes[] = allTeams.map((team) => ({
       ...team,
-      event_types: (eventTypes || []).filter((et: any) => et.team_id === team.id),
+      event_types: allEts.filter((et: any) => et.team_id === team.id),
     }));
+
+    // Include unassigned event types — assign them to the first team, or a virtual default
+    const unassigned = allEts.filter((et: any) => !et.team_id);
+    if (unassigned.length > 0) {
+      if (allTeams.length > 0) {
+        // Add unassigned event types to the first team's list
+        result[0].event_types = [...result[0].event_types, ...unassigned];
+      } else {
+        // No teams exist — create a virtual "default" team entry
+        result.push({
+          id: "default",
+          name: "Default",
+          slug: "default",
+          description: null,
+          is_active: true,
+          created_at: new Date().toISOString(),
+          event_types: unassigned,
+        });
+      }
+    }
+
+    return result;
   } catch {
     return [];
   }

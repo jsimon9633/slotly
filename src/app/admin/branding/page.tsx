@@ -186,7 +186,7 @@ export default function AdminBrandingPage() {
             href="/admin/join-requests"
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
-            Team
+            People
           </Link>
           <Link
             href="/admin/teams"

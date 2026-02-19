@@ -168,3 +168,54 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ success: true });
 }
+
+/**
+ * DELETE /api/admin/teams — Delete a team.
+ *
+ * Body: { id: string }
+ * Removes all team_memberships first, nullifies team_id on event_types, then deletes the team.
+ */
+export async function DELETE(request: NextRequest) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (token !== ADMIN_TOKEN) {
+    return unauthorized();
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("Invalid request body");
+  }
+
+  const { id } = body;
+
+  if (!id || typeof id !== "string") {
+    return badRequest("Missing team id");
+  }
+
+  // 1. Remove all memberships for this team
+  await supabaseAdmin
+    .from("team_memberships")
+    .delete()
+    .eq("team_id", id);
+
+  // 2. Nullify team_id on any event types assigned to this team
+  await supabaseAdmin
+    .from("event_types")
+    .update({ team_id: null })
+    .eq("team_id", id);
+
+  // 3. Delete the team
+  const { error } = await supabaseAdmin
+    .from("teams")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return serverError("Failed to delete team.", error, "Admin teams DELETE");
+  }
+
+  return NextResponse.json({ success: true });
+}

@@ -16,6 +16,7 @@ import {
   Calendar,
   X,
   Save,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -46,7 +47,7 @@ interface EventTypeData {
   duration_minutes: number;
   color: string;
   is_active: boolean;
-  team_id: string;
+  team_id: string | null;
 }
 
 interface AllMember {
@@ -73,6 +74,7 @@ export default function AdminTeamsPage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamEventTypes, setTeamEventTypes] = useState<EventTypeData[]>([]);
   const [allMembers, setAllMembers] = useState<AllMember[]>([]);
+  const [allEventTypes, setAllEventTypes] = useState<EventTypeData[]>([]);
   const [allTeamsForReassign, setAllTeamsForReassign] = useState<TeamData[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
@@ -88,6 +90,14 @@ export default function AdminTeamsPage() {
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [creating, setCreating] = useState(false);
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
+  const [newTeamId, setNewTeamId] = useState<string | null>(null);
+  const [selectedCreateMembers, setSelectedCreateMembers] = useState<string[]>([]);
+  const [addingCreateMembers, setAddingCreateMembers] = useState(false);
+
+  // Delete state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Action state
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -124,9 +134,41 @@ export default function AdminTeamsPage() {
     }
   }, [token]);
 
+  // Fetch all members from team_members table (not join_requests)
+  const fetchAllMembers = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/admin/team-members?token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setAllMembers(data);
+      }
+    } catch {
+      setAllMembers([]);
+    }
+  }, [token]);
+
+  // Fetch ALL event types (for assigning unassigned ones)
+  const fetchAllEventTypes = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setAllEventTypes(data);
+      }
+    } catch {
+      setAllEventTypes([]);
+    }
+  }, [token]);
+
   useEffect(() => {
-    if (authenticated) fetchTeams();
-  }, [authenticated, fetchTeams]);
+    if (authenticated) {
+      fetchTeams();
+      fetchAllMembers();
+      fetchAllEventTypes();
+    }
+  }, [authenticated, fetchTeams, fetchAllMembers, fetchAllEventTypes]);
 
   const handleLogin = () => {
     if (!username.trim() || !token.trim()) return;
@@ -138,7 +180,7 @@ export default function AdminTeamsPage() {
     setAuthenticated(true);
   };
 
-  // Expand a team → load members + event types
+  // Expand a team → load members + event types for that team
   const expandTeam = async (team: TeamData) => {
     if (expandedTeamId === team.id) {
       setExpandedTeamId(null);
@@ -148,16 +190,13 @@ export default function AdminTeamsPage() {
     setEditName(team.name);
     setEditSlug(team.slug);
     setEditDescription(team.description || "");
+    setConfirmDeleteId(null);
     setLoadingDetail(true);
 
     try {
-      const [membersRes, eventTypesRes, allMembersRes] = await Promise.all([
+      const [membersRes, eventTypesRes] = await Promise.all([
         fetch(`/api/admin/teams/${team.id}/members?token=${encodeURIComponent(token)}`),
         fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&teamId=${team.id}`),
-        fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`).then(() =>
-          // Fetch all team members (not team-specific)
-          fetch(`/api/admin/join-requests?token=${encodeURIComponent(token)}&status=approved`)
-        ),
       ]);
 
       const members = await membersRes.json();
@@ -165,24 +204,6 @@ export default function AdminTeamsPage() {
 
       if (Array.isArray(members)) setTeamMembers(members);
       if (Array.isArray(eventTypes)) setTeamEventTypes(eventTypes);
-
-      // Get all team members from join-requests approved list or fallback
-      // Actually, let's just query team_members directly via a simpler approach
-      // We'll fetch all members by getting all teams' members
-      try {
-        const allMembersData = await allMembersRes.json();
-        // join-requests returns approved members with {id, name, email}
-        if (Array.isArray(allMembersData)) {
-          setAllMembers(allMembersData.map((m: any) => ({
-            id: m.team_member_id || m.id,
-            name: m.name,
-            email: m.email,
-            is_active: true,
-          })));
-        }
-      } catch {
-        setAllMembers([]);
-      }
     } catch {
       setError("Failed to load team details.");
     } finally {
@@ -221,7 +242,7 @@ export default function AdminTeamsPage() {
     }
   };
 
-  // Create new team
+  // Create new team — step 1: name + description, step 2: add members
   const handleCreateTeam = async () => {
     if (!newName.trim()) return;
     setCreating(true);
@@ -236,9 +257,9 @@ export default function AdminTeamsPage() {
         }),
       });
       if (res.ok) {
-        setNewName("");
-        setNewDescription("");
-        setShowCreate(false);
+        const team = await res.json();
+        setNewTeamId(team.id);
+        setCreateStep(2);
         fetchTeams();
       } else {
         const data = await res.json();
@@ -248,6 +269,74 @@ export default function AdminTeamsPage() {
       setError("Something went wrong.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Add selected members to newly created team
+  const handleAddCreateMembers = async () => {
+    if (!newTeamId || selectedCreateMembers.length === 0) {
+      // Skip — just close
+      resetCreateForm();
+      return;
+    }
+    setAddingCreateMembers(true);
+    setError(null);
+    try {
+      for (const memberId of selectedCreateMembers) {
+        await fetch(`/api/admin/teams/${newTeamId}/members?token=${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ team_member_id: memberId }),
+        });
+      }
+      fetchTeams();
+      resetCreateForm();
+    } catch {
+      setError("Failed to add some members.");
+    } finally {
+      setAddingCreateMembers(false);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setShowCreate(false);
+    setNewName("");
+    setNewDescription("");
+    setCreateStep(1);
+    setNewTeamId(null);
+    setSelectedCreateMembers([]);
+  };
+
+  // Toggle member selection in create flow
+  const toggleCreateMember = (memberId: string) => {
+    setSelectedCreateMembers((prev) =>
+      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+    );
+  };
+
+  // Delete team
+  const handleDeleteTeam = async (teamId: string) => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/teams?token=${encodeURIComponent(token)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: teamId }),
+      });
+      if (res.ok) {
+        setExpandedTeamId(null);
+        setConfirmDeleteId(null);
+        fetchTeams();
+        fetchAllEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to delete team.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -302,6 +391,34 @@ export default function AdminTeamsPage() {
     }
   };
 
+  // Assign event type to this team
+  const handleAssignEventType = async (eventTypeId: string, teamId: string) => {
+    setActionLoading(`assign-${eventTypeId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: eventTypeId, team_id: teamId }),
+      });
+      if (res.ok) {
+        // Refresh event types for current team
+        const etRes = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&teamId=${expandedTeamId}`);
+        const eventTypes = await etRes.json();
+        if (Array.isArray(eventTypes)) setTeamEventTypes(eventTypes);
+        fetchTeams();
+        fetchAllEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to assign event type.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Reassign event type to another team
   const handleReassignEventType = async (eventTypeId: string, newTeamId: string) => {
     setActionLoading(`reassign-${eventTypeId}`);
@@ -310,14 +427,14 @@ export default function AdminTeamsPage() {
       const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: eventTypeId, team_id: newTeamId }),
+        body: JSON.stringify({ id: eventTypeId, team_id: newTeamId || null }),
       });
       if (res.ok) {
-        // Refresh event types for current team
         const etRes = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}&teamId=${expandedTeamId}`);
         const eventTypes = await etRes.json();
         if (Array.isArray(eventTypes)) setTeamEventTypes(eventTypes);
         fetchTeams();
+        fetchAllEventTypes();
       } else {
         const data = await res.json();
         setError(data.error || "Failed to reassign.");
@@ -329,9 +446,39 @@ export default function AdminTeamsPage() {
     }
   };
 
-  // Members not in current team
+  // Remove event type from team (set team_id to null)
+  const handleUnassignEventType = async (eventTypeId: string) => {
+    setActionLoading(`unassign-${eventTypeId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: eventTypeId, team_id: null }),
+      });
+      if (res.ok) {
+        setTeamEventTypes((prev) => prev.filter((et) => et.id !== eventTypeId));
+        fetchTeams();
+        fetchAllEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to remove event type.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Members not in current team (for "add member" dropdown)
   const availableMembers = allMembers.filter(
     (m) => !teamMembers.some((tm) => tm.id === m.id)
+  );
+
+  // Event types not assigned to any team or assigned to a different team (for "assign" dropdown)
+  const unassignedEventTypes = allEventTypes.filter(
+    (et) => !et.team_id || (expandedTeamId && et.team_id !== expandedTeamId)
   );
 
   // Auth gate
@@ -411,7 +558,7 @@ export default function AdminTeamsPage() {
             href="/admin/join-requests"
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
-            Team
+            People
           </Link>
           <div className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center bg-white text-gray-900 shadow-sm whitespace-nowrap px-2">
             Teams
@@ -457,7 +604,7 @@ export default function AdminTeamsPage() {
               </p>
             </div>
             <button
-              onClick={() => setShowCreate(!showCreate)}
+              onClick={() => { setShowCreate(!showCreate); setCreateStep(1); setNewTeamId(null); setSelectedCreateMembers([]); }}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
             >
               <Plus className="w-4 h-4" />
@@ -478,57 +625,117 @@ export default function AdminTeamsPage() {
         {/* Create Team */}
         {showCreate && (
           <div className="bg-white rounded-xl border-[1.5px] border-indigo-200 p-5 sm:p-6 mb-6 animate-fade-in-up">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">Create New Team</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Team Name *
-                </label>
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Sales, Engineering, Support"
-                  className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
-                />
-                {newName.trim() && (
-                  <p className="text-xs text-gray-400 mt-1">
-                    Slug: <span className="font-mono text-gray-500">{newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}</span>
-                  </p>
+            {createStep === 1 ? (
+              <>
+                <h3 className="text-base font-semibold text-gray-900 mb-4">Create New Team</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                      Team Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="e.g. Sales, Engineering, Support"
+                      className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+                    />
+                    {newName.trim() && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Slug: <span className="font-mono text-gray-500">{newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}</span>
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                      Description
+                    </label>
+                    <input
+                      type="text"
+                      value={newDescription}
+                      onChange={(e) => setNewDescription(e.target.value)}
+                      placeholder="What does this team handle?"
+                      className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      onClick={handleCreateTeam}
+                      disabled={!newName.trim() || creating}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+                    >
+                      {creating ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                      ) : (
+                        <>Next: Add Members</>
+                      )}
+                    </button>
+                    <button
+                      onClick={resetCreateForm}
+                      className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-600 transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-base font-semibold text-gray-900 mb-1">Add Members to {newName}</h3>
+                <p className="text-sm text-gray-400 mb-4">Select team members to add, or skip this step.</p>
+
+                {allMembers.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-3">No team members found. You can add members later from the team detail view.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+                    {allMembers.map((m) => (
+                      <label
+                        key={m.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+                          selectedCreateMembers.includes(m.id) ? "bg-indigo-50 border border-indigo-200" : "bg-gray-50 border border-transparent hover:bg-gray-100"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCreateMembers.includes(m.id)}
+                          onChange={() => toggleCreateMember(m.id)}
+                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                        />
+                        <div className="w-7 h-7 bg-indigo-100 rounded-full grid place-items-center text-xs font-bold text-indigo-600 flex-shrink-0">
+                          {m.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-gray-900">{m.name}</span>
+                          <span className="text-xs text-gray-400 ml-2">{m.email}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
                 )}
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="What does this team handle?"
-                  className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
-                />
-              </div>
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  onClick={handleCreateTeam}
-                  disabled={!newName.trim() || creating}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
-                >
-                  {creating ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
-                  ) : (
-                    <><Plus className="w-4 h-4" /> Create Team</>
-                  )}
-                </button>
-                <button
-                  onClick={() => { setShowCreate(false); setNewName(""); setNewDescription(""); }}
-                  className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-600 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleAddCreateMembers}
+                    disabled={addingCreateMembers}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+                  >
+                    {addingCreateMembers ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</>
+                    ) : selectedCreateMembers.length > 0 ? (
+                      <><UserPlus className="w-4 h-4" /> Add {selectedCreateMembers.length} Member{selectedCreateMembers.length !== 1 ? "s" : ""} &amp; Finish</>
+                    ) : (
+                      <>Skip &amp; Finish</>
+                    )}
+                  </button>
+                  <button
+                    onClick={resetCreateForm}
+                    className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-600 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -686,7 +893,7 @@ export default function AdminTeamsPage() {
                             </div>
                           )}
 
-                          {/* Add member */}
+                          {/* Add member dropdown */}
                           {availableMembers.length > 0 && (
                             <div className="mt-3">
                               <select
@@ -707,6 +914,11 @@ export default function AdminTeamsPage() {
                                 ))}
                               </select>
                             </div>
+                          )}
+                          {availableMembers.length === 0 && allMembers.length === 0 && (
+                            <p className="text-xs text-gray-400 mt-2">
+                              No team members exist yet. Add people in the People tab first, or approve join requests.
+                            </p>
                           )}
                         </div>
 
@@ -733,7 +945,7 @@ export default function AdminTeamsPage() {
                                     <span className="text-sm font-medium text-gray-900">{et.title}</span>
                                     <span className="text-xs text-gray-400 ml-2">{et.duration_minutes} min</span>
                                   </div>
-                                  {/* Reassign dropdown */}
+                                  {/* Move to another team */}
                                   {allTeamsForReassign.length > 1 && (
                                     <select
                                       onChange={(e) => {
@@ -754,9 +966,80 @@ export default function AdminTeamsPage() {
                                       ))}
                                     </select>
                                   )}
+                                  <button
+                                    onClick={() => handleUnassignEventType(et.id)}
+                                    disabled={actionLoading === `unassign-${et.id}`}
+                                    className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                                    title="Remove from team"
+                                  >
+                                    {actionLoading === `unassign-${et.id}` ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <X className="w-4 h-4" />
+                                    )}
+                                  </button>
                                 </div>
                               ))}
                             </div>
+                          )}
+
+                          {/* Assign event type dropdown */}
+                          {unassignedEventTypes.length > 0 && (
+                            <div className="mt-3">
+                              <select
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    handleAssignEventType(e.target.value, team.id);
+                                    e.target.value = "";
+                                  }
+                                }}
+                                className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-gray-200 rounded-lg focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all text-gray-500"
+                                defaultValue=""
+                              >
+                                <option value="" disabled>+ Assign an event type to this team...</option>
+                                {unassignedEventTypes.map((et) => {
+                                  const currentTeam = allTeamsForReassign.find((t) => t.id === et.team_id);
+                                  return (
+                                    <option key={et.id} value={et.id}>
+                                      {et.title} ({et.duration_minutes} min){currentTeam ? ` — currently in ${currentTeam.name}` : " — unassigned"}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Delete team */}
+                        <div className="pt-2 border-t border-gray-100">
+                          {confirmDeleteId === team.id ? (
+                            <div className="flex items-center gap-3 bg-red-50 rounded-lg px-4 py-3">
+                              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                              <span className="text-sm text-red-700 flex-1">
+                                Delete <strong>{team.name}</strong>? This removes all memberships and unassigns event types.
+                              </span>
+                              <button
+                                onClick={() => handleDeleteTeam(team.id)}
+                                disabled={deleting}
+                                className="px-3 py-1.5 rounded-md text-xs font-semibold bg-red-600 text-white hover:bg-red-700 transition-all disabled:opacity-50"
+                              >
+                                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Delete"}
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="text-xs text-gray-400 hover:text-gray-600"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(team.id)}
+                              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete team
+                            </button>
                           )}
                         </div>
                       </div>
