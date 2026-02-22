@@ -17,6 +17,8 @@ import {
   Sparkles,
   X,
   Globe,
+  Calendar,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 import type { EventType, TimeSlot, SiteSettings } from "@/lib/types";
@@ -182,6 +184,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const [confirmation, setConfirmation] = useState<{
     team_member_name: string;
     start_time: string;
+    end_time: string;
     event_type: string;
   } | null>(null);
 
@@ -376,6 +379,60 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
     }
   };
 
+  // ── Add to Calendar helpers ──
+  const formatCalDate = (iso: string) =>
+    new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+  const buildGoogleCalUrl = (conf: NonNullable<typeof confirmation>) => {
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: `${conf.event_type} with ${conf.team_member_name}`,
+      dates: `${formatCalDate(conf.start_time)}/${formatCalDate(conf.end_time)}`,
+      details: `Booked via Slotly`,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
+
+  const buildOutlookUrl = (conf: NonNullable<typeof confirmation>) => {
+    const params = new URLSearchParams({
+      path: "/calendar/action/compose",
+      rru: "addevent",
+      subject: `${conf.event_type} with ${conf.team_member_name}`,
+      startdt: conf.start_time,
+      enddt: conf.end_time,
+      body: "Booked via Slotly",
+    });
+    return `https://outlook.live.com/calendar/0/action/compose?${params.toString()}`;
+  };
+
+  const downloadIcs = (conf: NonNullable<typeof confirmation>) => {
+    const uid = `${Date.now()}@slotly`;
+    const now = formatCalDate(new Date().toISOString());
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Slotly//EN",
+      "BEGIN:VEVENT",
+      `UID:${uid}`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${formatCalDate(conf.start_time)}`,
+      `DTEND:${formatCalDate(conf.end_time)}`,
+      `SUMMARY:${conf.event_type} with ${conf.team_member_name}`,
+      `DESCRIPTION:Booked via Slotly`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ];
+    const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "booking.ics";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className={`${isEmbed ? "p-2 sm:p-4" : "min-h-screen p-4"} flex items-center justify-center`}>
       {/* Toast Notification */}
@@ -430,6 +487,11 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                   {timezone.replace(/_/g, " ")}
                 </button>
               </p>
+              {eventType.description && (
+                <p className="text-gray-700 text-sm sm:text-base mt-3 whitespace-pre-line leading-relaxed">
+                  {eventType.description}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -510,6 +572,35 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                   <span className="text-sm font-medium">{topic}</span>
                 </div>
               )}
+            </div>
+
+            {/* Add to Calendar */}
+            <div className="flex flex-col sm:flex-row items-center gap-2 mt-5 animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
+              <a
+                href={buildGoogleCalUrl(confirmation)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+              >
+                <Calendar className="w-4 h-4" />
+                Google Calendar
+              </a>
+              <a
+                href={buildOutlookUrl(confirmation)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+              >
+                <Calendar className="w-4 h-4" />
+                Outlook
+              </a>
+              <button
+                onClick={() => downloadIcs(confirmation)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+              >
+                <Download className="w-4 h-4" />
+                iCal / Other
+              </button>
             </div>
           </div>
         )}

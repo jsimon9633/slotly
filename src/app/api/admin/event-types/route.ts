@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("event_types")
-      .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
+      .select("id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
       .in("id", etIds)
       .order("title");
 
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   // No team filter — return all event types with their team associations
   const { data, error } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
+    .select("id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
     .order("title");
 
   if (error) {
@@ -156,7 +156,7 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, title, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions } = body;
+  const { id, title, description, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing event type id");
@@ -170,6 +170,18 @@ export async function PATCH(request: NextRequest) {
       return badRequest("Title must be 1-100 characters");
     }
     updates.title = trimmed;
+  }
+
+  if (description !== undefined) {
+    if (description === null || description === "") {
+      updates.description = null;
+    } else {
+      const trimmed = typeof description === "string" ? description.trim() : "";
+      if (trimmed.length > 1000) {
+        return badRequest("Description must be under 1000 characters");
+      }
+      updates.description = trimmed;
+    }
   }
 
   if (is_locked !== undefined) {
