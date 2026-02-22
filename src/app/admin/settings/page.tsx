@@ -843,10 +843,10 @@ export default function AdminSettingsPage() {
                           if (e.key === "Escape") setEditingDescId(null);
                         }}
                         autoFocus
-                        rows={3}
+                        rows={6}
                         maxLength={1000}
                         placeholder="Add a description shown to invitees on the booking page…"
-                        className="w-full text-sm text-gray-700 bg-white border-[1.5px] border-indigo-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-100 resize-none"
+                        className="w-full text-sm leading-relaxed text-gray-700 bg-white border-[1.5px] border-indigo-300 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-100 resize-y min-h-[140px]"
                       />
                       <div className="flex items-center gap-2">
                         <button
