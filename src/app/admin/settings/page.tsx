@@ -27,6 +27,7 @@ import {
   ToggleLeft,
   ToggleRight,
   GripVertical,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -42,6 +43,7 @@ interface EventTypeSettings {
   id: string;
   slug: string;
   title: string;
+  description: string | null;
   duration_minutes: number;
   color: string;
   is_active: boolean;
@@ -82,9 +84,14 @@ export default function AdminSettingsPage() {
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState("");
 
+  // Description edit state
+  const [editingDescId, setEditingDescId] = useState<string | null>(null);
+  const [editingDescValue, setEditingDescValue] = useState("");
+
   // Create event type state
   const [showCreateET, setShowCreateET] = useState(false);
   const [newETTitle, setNewETTitle] = useState("");
+  const [newETDesc, setNewETDesc] = useState("");
   const [newETDuration, setNewETDuration] = useState("30");
   const [newETColor, setNewETColor] = useState("#6366f1");
   const [creatingET, setCreatingET] = useState(false);
@@ -275,6 +282,32 @@ export default function AdminSettingsPage() {
     }
   };
 
+  // Save description
+  const handleSaveDescription = async (etId: string, desc: string) => {
+    setSavingId(etId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: etId, description: desc.trim() || null }),
+      });
+      if (res.ok) {
+        setSavedId(etId);
+        setTimeout(() => setSavedId(null), 2500);
+        setEditingDescId(null);
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to save description.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   // Create custom event type
   const handleCreateEventType = async () => {
     if (!newETTitle.trim()) return;
@@ -286,12 +319,14 @@ export default function AdminSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: newETTitle.trim(),
+          description: newETDesc.trim() || undefined,
           duration_minutes: parseInt(newETDuration) || 30,
           color: newETColor,
         }),
       });
       if (res.ok) {
         setNewETTitle("");
+        setNewETDesc("");
         setNewETDuration("30");
         setNewETColor("#6366f1");
         setShowCreateET(false);
@@ -665,6 +700,19 @@ export default function AdminSettingsPage() {
                   ))}
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Description
+                </label>
+                <textarea
+                  value={newETDesc}
+                  onChange={(e) => setNewETDesc(e.target.value)}
+                  placeholder="Shown to invitees on the booking page (optional)"
+                  rows={2}
+                  maxLength={1000}
+                  className="w-full px-4 py-3 text-sm bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300 resize-none"
+                />
+              </div>
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={handleCreateEventType}
@@ -782,6 +830,58 @@ export default function AdminSettingsPage() {
                       <><Unlock className="w-3 h-3" /> Unlocked</>
                     )}
                   </button>
+                </div>
+
+                {/* Description */}
+                <div className="px-5 sm:px-6 pb-3">
+                  {editingDescId === et.id ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        value={editingDescValue}
+                        onChange={(e) => setEditingDescValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setEditingDescId(null);
+                        }}
+                        autoFocus
+                        rows={3}
+                        maxLength={1000}
+                        placeholder="Add a description shown to invitees on the booking page…"
+                        className="w-full text-sm text-gray-700 bg-white border-[1.5px] border-indigo-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-100 resize-none"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSaveDescription(et.id, editingDescValue)}
+                          disabled={savingId === et.id}
+                          className="text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {savingId === et.id ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          onClick={() => setEditingDescId(null)}
+                          className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1"
+                        >
+                          Cancel
+                        </button>
+                        <span className="text-[10px] text-gray-300 ml-auto">{editingDescValue.length}/1000</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setEditingDescId(et.id);
+                        setEditingDescValue(et.description || "");
+                      }}
+                      className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-indigo-500 transition-colors group"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      {et.description ? (
+                        <span className="text-gray-600 group-hover:text-indigo-500 line-clamp-1">{et.description}</span>
+                      ) : (
+                        <span className="italic">Add description…</span>
+                      )}
+                      <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Settings grid */}

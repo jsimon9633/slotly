@@ -430,6 +430,11 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                   {timezone.replace(/_/g, " ")}
                 </button>
               </p>
+              {eventType.description && (
+                <p className="text-gray-600 text-sm mt-2 whitespace-pre-line leading-relaxed">
+                  {eventType.description}
+                </p>
+              )}
             </div>
           </div>
         </div>
