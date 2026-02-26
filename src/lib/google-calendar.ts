@@ -1,31 +1,69 @@
 import { google, calendar_v3 } from "googleapis";
+import { getOAuthCalendarClient, refreshAccessToken } from "./google-oauth";
 
 /**
- * Create authenticated Google Calendar client using service account.
+ * Create authenticated Google Calendar client using service account (legacy fallback).
  * If `impersonateEmail` is provided, the service account will act as that user
  * (requires domain-wide delegation in Google Workspace Admin).
  */
-function getCalendarClient(impersonateEmail?: string): calendar_v3.Calendar {
+function getServiceAccountClient(impersonateEmail?: string): calendar_v3.Calendar {
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     scopes: ["https://www.googleapis.com/auth/calendar"],
-    subject: impersonateEmail, // impersonate the team member
+    subject: impersonateEmail,
   });
 
   return google.calendar({ version: "v3", auth });
 }
 
 /**
- * Get free/busy information for a team member's calendar
+ * Try to get an OAuth-authenticated calendar client for a member.
+ * Returns null if no OAuth token or refresh fails.
+ */
+async function tryGetOAuthClient(oauthRefreshToken?: string): Promise<calendar_v3.Calendar | null> {
+  if (!oauthRefreshToken) return null;
+
+  try {
+    const result = await refreshAccessToken(oauthRefreshToken);
+    if (!result) return null;
+    return getOAuthCalendarClient(result.access_token);
+  } catch (err) {
+    console.error("[Calendar] OAuth token refresh failed, falling back to service account:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Get free/busy information for a team member's calendar.
+ * Uses OAuth if available, falls back to service account.
  */
 export async function getFreeBusy(
   calendarId: string,
   timeMin: string,
-  timeMax: string
+  timeMax: string,
+  oauthRefreshToken?: string
 ): Promise<{ start: string; end: string }[]> {
-  const calendar = getCalendarClient();
+  // Tier 1: Try OAuth
+  const oauthClient = await tryGetOAuthClient(oauthRefreshToken);
+  if (oauthClient) {
+    try {
+      const res = await oauthClient.freebusy.query({
+        requestBody: {
+          timeMin,
+          timeMax,
+          items: [{ id: "primary" }],
+        },
+      });
+      const busy = res.data.calendars?.["primary"]?.busy || [];
+      return busy.map((b) => ({ start: b.start!, end: b.end! }));
+    } catch (err) {
+      console.error("[Calendar] OAuth free/busy failed, falling back to service account:", err instanceof Error ? err.message : err);
+    }
+  }
 
+  // Tier 2: Service account fallback
+  const calendar = getServiceAccountClient();
   const res = await calendar.freebusy.query({
     requestBody: {
       timeMin,
@@ -43,15 +81,14 @@ export async function getFreeBusy(
 
 /**
  * Create a calendar event for a booking.
- * Tries impersonation first (Workspace with domain-wide delegation),
- * falls back to direct calendar insert (shared calendar),
- * falls back to service account calendar with attendee invites.
+ * Tier 1: OAuth (user's own calendar)
+ * Tier 2: Service account — impersonation → shared calendar → SA calendar
  */
 export interface CalendarEventResult {
   eventId: string;
   meetLink?: string;
-  meetPhone?: string; // dial-in number
-  meetPin?: string;   // PIN for phone dial-in
+  meetPhone?: string;
+  meetPin?: string;
 }
 
 export async function createCalendarEvent(params: {
@@ -62,6 +99,7 @@ export async function createCalendarEvent(params: {
   endTime: string;
   attendeeEmail: string;
   timezone: string;
+  oauthRefreshToken?: string;
 }): Promise<CalendarEventResult> {
   const eventBody = {
     summary: params.summary,
@@ -105,9 +143,26 @@ export async function createCalendarEvent(params: {
     return result;
   }
 
-  // Attempt 1: Impersonate the team member (works with Workspace + domain-wide delegation)
+  // Tier 1: OAuth — create on user's primary calendar
+  const oauthClient = await tryGetOAuthClient(params.oauthRefreshToken);
+  if (oauthClient) {
+    try {
+      const res = await oauthClient.events.insert({
+        calendarId: "primary",
+        requestBody: eventBody,
+        sendUpdates: "all",
+        conferenceDataVersion: 1,
+      });
+      console.log("[Calendar] Event created via OAuth");
+      return extractMeetDetails(res.data);
+    } catch (err) {
+      console.error("[Calendar] OAuth event creation failed, falling back to service account:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Tier 2a: Service account — impersonate the team member
   try {
-    const calendar = getCalendarClient(params.calendarId);
+    const calendar = getServiceAccountClient(params.calendarId);
     const res = await calendar.events.insert({
       calendarId: "primary",
       requestBody: eventBody,
@@ -115,13 +170,13 @@ export async function createCalendarEvent(params: {
       conferenceDataVersion: 1,
     });
     return extractMeetDetails(res.data);
-  } catch (err: any) {
-    // Impersonation not available, trying shared calendar
+  } catch {
+    // Impersonation not available
   }
 
-  // Attempt 2: Insert directly into the shared calendar
+  // Tier 2b: Service account — shared calendar
   try {
-    const calendar = getCalendarClient();
+    const calendar = getServiceAccountClient();
     const res = await calendar.events.insert({
       calendarId: params.calendarId,
       requestBody: eventBody,
@@ -129,12 +184,12 @@ export async function createCalendarEvent(params: {
       conferenceDataVersion: 1,
     });
     return extractMeetDetails(res.data);
-  } catch (err: any) {
-    // Shared calendar not available, trying service account fallback
+  } catch {
+    // Shared calendar not available
   }
 
-  // Attempt 3: Create on service account's calendar, invite everyone
-  const calendar = getCalendarClient();
+  // Tier 2c: Service account — own calendar with attendees
+  const calendar = getServiceAccountClient();
   const res = await calendar.events.insert({
     calendarId: "primary",
     requestBody: {
@@ -152,15 +207,31 @@ export async function createCalendarEvent(params: {
 
 /**
  * Delete a calendar event (for cancellation).
- * Tries same 3-tier fallback: impersonation → shared calendar → service account.
+ * Tier 1: OAuth, Tier 2: Service account 3-tier fallback.
  */
 export async function deleteCalendarEvent(
   googleEventId: string,
-  calendarId: string
+  calendarId: string,
+  oauthRefreshToken?: string
 ): Promise<boolean> {
-  // Attempt 1: Impersonate the team member
+  // Tier 1: OAuth
+  const oauthClient = await tryGetOAuthClient(oauthRefreshToken);
+  if (oauthClient) {
+    try {
+      await oauthClient.events.delete({
+        calendarId: "primary",
+        eventId: googleEventId,
+        sendUpdates: "all",
+      });
+      return true;
+    } catch (err) {
+      console.error("[Calendar] OAuth event delete failed, falling back:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Tier 2a: Impersonate
   try {
-    const calendar = getCalendarClient(calendarId);
+    const calendar = getServiceAccountClient(calendarId);
     await calendar.events.delete({
       calendarId: "primary",
       eventId: googleEventId,
@@ -171,9 +242,9 @@ export async function deleteCalendarEvent(
     // Impersonation not available
   }
 
-  // Attempt 2: Shared calendar
+  // Tier 2b: Shared calendar
   try {
-    const calendar = getCalendarClient();
+    const calendar = getServiceAccountClient();
     await calendar.events.delete({
       calendarId: calendarId,
       eventId: googleEventId,
@@ -184,9 +255,9 @@ export async function deleteCalendarEvent(
     // Shared calendar not available
   }
 
-  // Attempt 3: Service account calendar
+  // Tier 2c: Service account calendar
   try {
-    const calendar = getCalendarClient();
+    const calendar = getServiceAccountClient();
     await calendar.events.delete({
       calendarId: "primary",
       eventId: googleEventId,
@@ -201,7 +272,7 @@ export async function deleteCalendarEvent(
 
 /**
  * Update a calendar event (for rescheduling).
- * Tries same 3-tier fallback: impersonation → shared calendar → service account.
+ * Tier 1: OAuth, Tier 2: Service account 3-tier fallback.
  */
 export async function updateCalendarEvent(params: {
   googleEventId: string;
@@ -212,6 +283,7 @@ export async function updateCalendarEvent(params: {
   endTime: string;
   attendeeEmail: string;
   timezone: string;
+  oauthRefreshToken?: string;
 }): Promise<string> {
   const eventBody = {
     summary: params.summary,
@@ -240,9 +312,26 @@ export async function updateCalendarEvent(params: {
     },
   };
 
-  // Attempt 1: Impersonate
+  // Tier 1: OAuth
+  const oauthClient = await tryGetOAuthClient(params.oauthRefreshToken);
+  if (oauthClient) {
+    try {
+      const res = await oauthClient.events.update({
+        calendarId: "primary",
+        eventId: params.googleEventId,
+        requestBody: eventBody,
+        sendUpdates: "all",
+        conferenceDataVersion: 1,
+      });
+      return res.data.id!;
+    } catch (err) {
+      console.error("[Calendar] OAuth event update failed, falling back:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Tier 2a: Impersonate
   try {
-    const calendar = getCalendarClient(params.calendarId);
+    const calendar = getServiceAccountClient(params.calendarId);
     const res = await calendar.events.update({
       calendarId: "primary",
       eventId: params.googleEventId,
@@ -255,9 +344,9 @@ export async function updateCalendarEvent(params: {
     // Impersonation not available
   }
 
-  // Attempt 2: Shared calendar
+  // Tier 2b: Shared calendar
   try {
-    const calendar = getCalendarClient();
+    const calendar = getServiceAccountClient();
     const res = await calendar.events.update({
       calendarId: params.calendarId,
       eventId: params.googleEventId,
@@ -270,8 +359,8 @@ export async function updateCalendarEvent(params: {
     // Shared calendar not available
   }
 
-  // Attempt 3: Service account calendar
-  const calendar = getCalendarClient();
+  // Tier 2c: Service account calendar
+  const calendar = getServiceAccountClient();
   const res = await calendar.events.update({
     calendarId: "primary",
     eventId: params.googleEventId,

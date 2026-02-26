@@ -79,7 +79,7 @@ export async function POST(
       google_event_id,
       manage_token,
       event_types ( id, slug, title, duration_minutes ),
-      team_members ( id, name, email, google_calendar_id )
+      team_members ( id, name, email, google_calendar_id, google_oauth_refresh_token )
     `)
     .eq("manage_token", token)
     .single();
@@ -137,6 +137,7 @@ export async function POST(
         endTime: newEnd.toISOString(),
         attendeeEmail: booking.invitee_email,
         timezone,
+        oauthRefreshToken: teamMember.google_oauth_refresh_token || undefined,
       });
     } catch (err) {
       calendarSynced = false;

@@ -51,7 +51,6 @@ export default function AdminJoinRequestsPage() {
   const [invites, setInvites] = useState<InviteToken[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"pending" | "approved" | "rejected">("pending");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -193,26 +192,6 @@ export default function AdminJoinRequestsPage() {
     } finally {
       setUpdatingId(null);
     }
-  };
-
-  const generateSQL = (req: JoinRequest) => {
-    const firstName = req.name.split(" ")[0];
-    return `-- Add ${firstName} to the round-robin
--- Step 1: Insert team member
-INSERT INTO team_members (name, email, google_calendar_id, is_active, last_booked_at)
-VALUES ('${req.name}', '${req.email}', '${req.email}', true, now());
-
--- Step 2: Add default availability (Mon-Fri 9am-5pm)
-INSERT INTO availability_rules (team_member_id, day_of_week, start_time, end_time)
-SELECT id, d.day, '09:00', '17:00'
-FROM team_members, unnest(ARRAY[1,2,3,4,5]) AS d(day)
-WHERE email = '${req.email}';`;
-  };
-
-  const copySQL = (req: JoinRequest) => {
-    navigator.clipboard.writeText(generateSQL(req));
-    setCopiedId(req.id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const formatDate = (iso: string) => {
@@ -480,48 +459,20 @@ WHERE email = '${req.email}';`;
                       </div>
                     </div>
 
-                    {/* Calendar status */}
+                    {/* Calendar connection status */}
                     <div className="flex items-center gap-2 text-sm sm:text-base mb-4">
                       <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                      <span className="text-gray-500">Calendar shared:</span>
+                      <span className="text-gray-500">Calendar:</span>
                       {req.calendar_shared ? (
                         <span className="text-emerald-600 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" /> Yes
+                          <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" /> Connected via Google OAuth
                         </span>
                       ) : (
-                        <span className="text-red-500 font-medium flex items-center gap-1">
-                          <XCircle className="w-4 h-4 sm:w-5 sm:h-5" /> No
+                        <span className="text-amber-500 font-medium flex items-center gap-1">
+                          <Clock className="w-4 h-4 sm:w-5 sm:h-5" /> Pending connection
                         </span>
                       )}
                     </div>
-
-                    {/* SQL block (only for pending) */}
-                    {filter === "pending" && (
-                      <>
-                        <div className="text-xs sm:text-sm uppercase tracking-wide text-gray-400 font-semibold mb-2">
-                          SQL to run after approving
-                        </div>
-                        <div className="bg-gray-900 rounded-lg p-4 sm:p-5 font-mono text-xs sm:text-sm leading-relaxed text-gray-300 overflow-x-auto whitespace-pre max-h-[200px] sm:max-h-[260px]">
-                          {generateSQL(req)}
-                        </div>
-                        <button
-                          onClick={() => copySQL(req)}
-                          className="mt-3 text-sm sm:text-base font-medium flex items-center gap-1.5 text-indigo-500 hover:text-indigo-700 transition-colors"
-                        >
-                          {copiedId === req.id ? (
-                            <>
-                              <Check className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
-                              <span className="text-emerald-500">Copied!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-4 h-4 sm:w-5 sm:h-5" />
-                              Copy SQL
-                            </>
-                          )}
-                        </button>
-                      </>
-                    )}
 
                     {/* Action buttons (only for pending) */}
                     {filter === "pending" && (
@@ -668,13 +619,13 @@ WHERE email = '${req.email}';`;
               <strong>2.</strong> Send the link to the new team member. It expires in 7 days and is single-use.
             </p>
             <p>
-              <strong>3.</strong> They fill in their info and share their Google Calendar.
+              <strong>3.</strong> They click &quot;Connect with Google&quot; to link their calendar via OAuth. Name, email, and photo are pulled automatically.
             </p>
             <p>
-              <strong>4.</strong> Their request appears in &quot;Join Requests&quot; → copy the SQL, run it in Supabase, then Approve.
+              <strong>4.</strong> Their request appears here. Click &quot;Approve&quot; and they&apos;re automatically set up with default availability and added to the team.
             </p>
             <p>
-              <strong>5.</strong> They&apos;re live in the round-robin — Slotly reads their Google Calendar for availability.
+              <strong>5.</strong> They&apos;re live in the round-robin — Slotly reads their Google Calendar for availability via their OAuth connection.
             </p>
           </div>
         </div>

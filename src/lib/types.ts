@@ -21,6 +21,12 @@ export interface TeamMember {
   name: string;
   email: string;
   google_calendar_id: string;
+  avatar_url: string | null;
+  google_oauth_refresh_token?: string; // server-side only, never sent to client
+  google_oauth_connected_at?: string;
+  google_oauth_revoked_at?: string;
+  google_oauth_scopes?: string;
+  slack_user_id?: string;
   is_active: boolean;
   last_booked_at: string;
 }
