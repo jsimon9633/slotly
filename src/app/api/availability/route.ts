@@ -64,18 +64,12 @@ export async function GET(request: NextRequest) {
   }
 
   // Look up event type — only fetch needed fields
-  let etQuery = supabaseAdmin
+  const { data: eventType, error: etError } = await supabaseAdmin
     .from("event_types")
     .select("id, slug, title, duration_minutes, color, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id")
     .eq("slug", eventTypeSlug)
-    .eq("is_active", true);
-
-  // Scope to team if provided
-  if (teamId) {
-    etQuery = etQuery.eq("team_id", teamId);
-  }
-
-  const { data: eventType, error: etError } = await etQuery.single();
+    .eq("is_active", true)
+    .single();
 
   if (etError) {
     if (etError.code === "PGRST116") {
@@ -86,6 +80,21 @@ export async function GET(request: NextRequest) {
 
   if (!eventType) {
     return notFound("Event type");
+  }
+
+  // Verify event type belongs to this team (via direct team_id or join table)
+  if (teamId && eventType.team_id !== teamId) {
+    const { data: link } = await supabaseAdmin
+      .from("team_event_types")
+      .select("event_type_id")
+      .eq("team_id", teamId)
+      .eq("event_type_id", eventType.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!link) {
+      return notFound("Event type");
+    }
   }
 
   // Use the event type's team_id for scoping (even if no teamSlug was provided)
