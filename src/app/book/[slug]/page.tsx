@@ -115,7 +115,7 @@ export default async function BookSlugPage({ params }: PageProps) {
   // 2. Not a team — check if it's an event type slug (legacy redirect)
   const { data: eventType } = await supabaseAdmin
     .from("event_types")
-    .select("slug, team_id, teams!inner ( slug )")
+    .select("id, slug, team_id")
     .eq("slug", slug)
     .eq("is_active", true)
     .limit(1)
@@ -125,18 +125,53 @@ export default async function BookSlugPage({ params }: PageProps) {
     notFound();
   }
 
-  const teamSlug = (eventType as any).teams?.slug || "default";
-  redirect(`/book/${teamSlug}/${slug}`);
+  // Resolve team slug: try direct team_id, then join table
+  let targetTeamSlug = "default";
+  if (eventType.team_id) {
+    const { data: directTeam } = await supabaseAdmin
+      .from("teams")
+      .select("slug")
+      .eq("id", eventType.team_id)
+      .single();
+    if (directTeam) targetTeamSlug = directTeam.slug;
+  } else {
+    const { data: joinLink } = await supabaseAdmin
+      .from("team_event_types")
+      .select("team_id, teams ( slug )")
+      .eq("event_type_id", eventType.id)
+      .limit(1)
+      .maybeSingle();
+    if (joinLink && (joinLink as any).teams?.slug) {
+      targetTeamSlug = (joinLink as any).teams.slug;
+    }
+  }
+
+  redirect(`/book/${targetTeamSlug}/${slug}`);
 }
 
 async function getTeamEventTypes(teamId: string) {
   try {
+    // Get event type IDs linked via the many-to-many join table
+    const { data: links } = await supabaseAdmin
+      .from("team_event_types")
+      .select("event_type_id")
+      .eq("team_id", teamId);
+
+    const linkedIds = (links || []).map((l: any) => l.event_type_id);
+
+    // Fetch event types: those with direct team_id OR linked via join table
+    let filter = `team_id.eq.${teamId}`;
+    if (linkedIds.length > 0) {
+      filter += `,id.in.(${linkedIds.join(",")})`;
+    }
+
     const { data } = await supabaseAdmin
       .from("event_types")
       .select("id, slug, title, description, duration_minutes, color")
-      .eq("team_id", teamId)
+      .or(filter)
       .eq("is_active", true)
       .order("duration_minutes", { ascending: true });
+
     return data || [];
   } catch {
     return [];

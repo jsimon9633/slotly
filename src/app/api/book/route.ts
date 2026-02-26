@@ -145,21 +145,31 @@ export async function POST(request: NextRequest) {
       teamId = team.id;
     }
 
-    // Get event type — scope to team if provided
-    let etQuery = supabaseAdmin
+    // Get event type
+    const { data: eventType, error: etError } = await supabaseAdmin
       .from("event_types")
       .select("id, title, duration_minutes, max_daily_bookings, team_id, booking_questions")
       .eq("slug", eventTypeSlug)
-      .eq("is_active", true);
-
-    if (teamId) {
-      etQuery = etQuery.eq("team_id", teamId);
-    }
-
-    const { data: eventType, error: etError } = await etQuery.single();
+      .eq("is_active", true)
+      .single();
 
     if (etError || !eventType) {
       return notFound("Event type");
+    }
+
+    // Verify event type belongs to this team (via direct team_id or join table)
+    if (teamId && eventType.team_id !== teamId) {
+      const { data: link } = await supabaseAdmin
+        .from("team_event_types")
+        .select("event_type_id")
+        .eq("team_id", teamId)
+        .eq("event_type_id", eventType.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (!link) {
+        return notFound("Event type");
+      }
     }
 
     // Validate custom answers against booking questions

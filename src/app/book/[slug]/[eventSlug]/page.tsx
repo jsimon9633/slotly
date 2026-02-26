@@ -9,29 +9,47 @@ export const revalidate = 60;
 // Pre-render known booking pages at build time → served from CDN, zero cold start
 export async function generateStaticParams() {
   try {
-    // Fetch event types with their teams (left join — includes unassigned)
-    const { data } = await supabaseAdmin
+    const { data: eventTypes } = await supabaseAdmin
       .from("event_types")
-      .select("slug, team_id, teams ( slug )")
+      .select("id, slug, team_id")
       .eq("is_active", true);
 
-    if (!data) return [];
+    if (!eventTypes) return [];
 
-    // For unassigned event types, use the first active team's slug as default
-    const { data: firstTeam } = await supabaseAdmin
-      .from("teams")
-      .select("slug")
-      .eq("is_active", true)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
+    // Get all join table links and team slugs in parallel
+    const [{ data: links }, { data: teams }] = await Promise.all([
+      supabaseAdmin.from("team_event_types").select("event_type_id, team_id"),
+      supabaseAdmin.from("teams").select("id, slug").eq("is_active", true),
+    ]);
 
-    const defaultSlug = firstTeam?.slug || "default";
+    const teamSlugMap = new Map((teams || []).map((t: any) => [t.id, t.slug]));
+    const defaultSlug = teams?.[0]?.slug || "default";
 
-    return data.map((et: any) => ({
-      slug: et.teams?.slug || defaultSlug,
-      eventSlug: et.slug,
-    }));
+    // Build event_type_id → team_ids map from join table
+    const etToTeams: Record<string, string[]> = {};
+    for (const link of links || []) {
+      if (!etToTeams[link.event_type_id]) etToTeams[link.event_type_id] = [];
+      etToTeams[link.event_type_id].push(link.team_id);
+    }
+
+    const params: { slug: string; eventSlug: string }[] = [];
+    for (const et of eventTypes) {
+      // Collect all team IDs for this event type (direct + join table)
+      const teamIds = new Set<string>();
+      if (et.team_id) teamIds.add(et.team_id);
+      for (const tid of etToTeams[et.id] || []) teamIds.add(tid);
+
+      if (teamIds.size === 0) {
+        params.push({ slug: defaultSlug, eventSlug: et.slug });
+      } else {
+        for (const tid of teamIds) {
+          const tSlug = teamSlugMap.get(tid);
+          if (tSlug) params.push({ slug: tSlug, eventSlug: et.slug });
+        }
+      }
+    }
+
+    return params;
   } catch {
     return [];
   }
@@ -111,17 +129,30 @@ export default async function BookingPage({ params }: PageProps) {
 
 async function getEventType(slug: string, teamId: string): Promise<EventType | null> {
   try {
-    const { data } = await supabaseAdmin
+    const { data: eventType } = await supabaseAdmin
       .from("event_types")
       .select(
         "id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, team_id, booking_questions"
       )
       .eq("slug", slug)
-      .eq("team_id", teamId)
       .eq("is_active", true)
       .limit(1)
       .single();
-    return data || null;
+
+    if (!eventType) return null;
+
+    // Check if linked to this team via direct team_id or join table
+    if (eventType.team_id === teamId) return eventType;
+
+    const { data: link } = await supabaseAdmin
+      .from("team_event_types")
+      .select("event_type_id")
+      .eq("team_id", teamId)
+      .eq("event_type_id", eventType.id)
+      .limit(1)
+      .maybeSingle();
+
+    return link ? eventType : null;
   } catch {
     return null;
   }
