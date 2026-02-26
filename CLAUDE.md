@@ -124,7 +124,8 @@ src/
 └── supabase/
     ├── schema.sql                        # Full database schema + seed data
     └── migrations/
-        └── 005_team_event_types_join.sql # Team-event type join table migration
+        ├── 20260219_add_teams.sql                # Teams, memberships, availability rules
+        └── 20260219_add_noshow_and_smart_scheduling.sql # No-show scoring + smart scheduling columns
 ```
 
 ---
@@ -139,7 +140,7 @@ src/
 | `availability_rules` | Per-member working hours by day of week |
 | `teams` | Team groupings (name, slug, description) |
 | `team_memberships` | Many-to-many: members ↔ teams with roles (admin/member) |
-| `team_event_links` | Many-to-many: event types ↔ teams |
+| `team_event_types` | Many-to-many: event types ↔ teams (allows one event type in multiple teams) |
 | `webhooks` | Webhook endpoints (URL, secret, subscribed events) |
 | `webhook_logs` | Delivery logs (status code, response, success) |
 | `site_settings` | Branding config (company name, logo URL, primary/accent colors) |
@@ -162,6 +163,8 @@ src/
 - **Round-robin assignment** — books the team member who hasn't been booked in the longest time
 - **Real-time availability** — checks Google Calendar free/busy + availability rules + buffer times
 - **Timezone support** — auto-detects user timezone, searchable timezone picker
+- **Google Meet auto-creation** — every booking creates a Google Meet link (via `conferenceData` on Calendar event), included in confirmation emails with join button + dial-in details
+- **Multi-team event types** — one event type can belong to multiple teams via `team_event_types` join table; team landing pages, booking pages, and APIs all resolve through both direct `team_id` and the join table
 - **Booking confirmation emails** — HTML emails via SendGrid with meeting details + manage link
 
 ### Booking Management
@@ -209,7 +212,6 @@ src/
 ### Medium Priority
 - **Full month calendar option** — alternative to horizontal date strip for desktop users (consider making it a toggle)
 - **AI Meeting Prep** — enrichment pipeline: booking history → Google search (name+email) → phone fallback → email handle clues → domain scrape (opportunistic) → Claude API synthesis. See `docs/Slotly Enrichment Services to Explore.docx`
-- **Google Meet auto-creation** — create Google Meet link during booking and include in confirmation email
 - **Email template customization** — allow admins to customize confirmation/reminder email templates in the UI
 - **Multi-language support** — i18n for booking pages
 
@@ -249,6 +251,13 @@ BookingClient (CSR) → fetches availability slots via /api/availability
     → triggers workflow automations
     → returns confirmation with start_time, end_time, team_member_name, event_type
 ```
+
+### Team ↔ Event Type Resolution
+Event types can belong to teams via two paths (both are checked everywhere):
+1. **Direct FK** — `event_types.team_id` column (legacy, used by the default team)
+2. **Join table** — `team_event_types` many-to-many table (used when one event type is shared across multiple teams)
+
+All public pages and APIs (team landing, booking page, `/api/availability`, `/api/book`) check both paths: direct `team_id` match first, then fall back to `team_event_types` join table lookup. Admin APIs already use the join table exclusively.
 
 ### Smart Scheduling Badge Logic
 - **Phase 1 (current):** Industry defaults — Tue/Wed/Thu + 10am-2pm slots get "Popular" badge
