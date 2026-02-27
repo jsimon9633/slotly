@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { badRequest, notFound, gone, serverError } from "@/lib/api-errors";
 
+// Ensure this route is never cached by Next.js / Netlify CDN
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
 
@@ -21,6 +24,7 @@ export async function GET(req: NextRequest) {
     .single();
 
   if (error) {
+    console.error("[Invite Validate] DB error for token ...%s: %s (code: %s)", token.slice(-8), error.message, error.code);
     if (error.code === "PGRST116") {
       return notFound("Invite");
     }
@@ -28,14 +32,17 @@ export async function GET(req: NextRequest) {
   }
 
   if (!data) {
+    console.error("[Invite Validate] No data for token ...%s", token.slice(-8));
     return notFound("Invite");
   }
 
   if (data.is_used) {
+    console.log("[Invite Validate] Token ...%s already used", token.slice(-8));
     return gone("This invite has already been used.");
   }
 
   if (new Date(data.expires_at) < new Date()) {
+    console.log("[Invite Validate] Token ...%s expired at %s", token.slice(-8), data.expires_at);
     return gone("This invite has expired.");
   }
 

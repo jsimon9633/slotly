@@ -1,6 +1,6 @@
 # Slotly — Project Knowledge Base
 
-> **Last updated:** 2026-02-26
+> **Last updated:** 2026-02-27
 > **Owner:** Alberto (asimon@masterworks.com)
 > **Repo:** https://github.com/jsimon9633/slotly
 > **Live URL:** https://sparkling-tarsier-bc26ef.netlify.app/
@@ -13,7 +13,7 @@
 - **Framework:** Next.js 16, App Router, TypeScript
 - **Styling:** Tailwind CSS v4
 - **Database:** Supabase (PostgreSQL)
-- **Calendar:** Google Calendar API via service account
+- **Calendar:** Google Calendar API via per-user OAuth (primary) + service account (fallback)
 - **Email:** SendGrid (confirmation, reminders, workflow emails)
 - **Hosting:** Netlify (serverless functions)
 - **Date utils:** date-fns + date-fns-tz
@@ -35,6 +35,13 @@
 | `NEXT_PUBLIC_SITE_URL` | Public site URL (for links in emails) |
 | `ADMIN_TOKEN` | Admin panel auth token (`slotly-jsimon9633-2026`) |
 | `ADMIN_USERNAME` | Admin panel username (`albertos`) |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth 2.0 client ID (from Google Cloud Console) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth 2.0 client secret |
+| `GOOGLE_OAUTH_REDIRECT_URI` | (optional) Override OAuth callback URL; auto-derived from request URL if not set |
+| `TOKEN_ENCRYPTION_KEY` | 32-byte hex string (64 hex chars) for AES-256-GCM encryption of OAuth tokens |
+| `SLACK_BOT_TOKEN` | (optional) Slack bot token for re-auth DM notifications |
+| `SLACK_WEBHOOK_URL` | (optional) Slack webhook for channel notifications |
+| `CRON_SECRET` | Bearer token for cron endpoints |
 
 ---
 
@@ -61,7 +68,7 @@ src/
 │   │   ├── cancel/page.tsx               # Cancel booking
 │   │   └── reschedule/page.tsx           # Reschedule booking
 │   │
-│   ├── join/page.tsx                     # Team member join page (invite link)
+│   ├── join/page.tsx                     # Team member join page (Google OAuth onboarding)
 │   ├── embed/page.tsx                    # Embeddable booking widget
 │   │
 │   ├── admin/
@@ -77,41 +84,49 @@ src/
 │   └── api/
 │       ├── event-types/route.ts          # Public: GET event types
 │       ├── availability/route.ts         # Public: GET available slots for a date
-│       ├── book/route.ts                 # Public: POST create booking
+│       ├── book/route.ts                 # Public: POST create booking (uses OAuth tokens)
 │       ├── team/route.ts                 # Public: GET team info
 │       ├── teams/route.ts                # Public: GET all teams
 │       ├── settings/route.ts             # Public: GET site branding settings
 │       ├── join/route.ts                 # Public: POST join team request
 │       ├── invite/validate/route.ts      # Public: GET validate invite link
 │       │
+│       ├── auth/
+│       │   └── google/
+│       │       ├── route.ts              # GET: initiate Google OAuth flow (?invite= or ?reauth=)
+│       │       └── callback/route.ts     # GET: Google OAuth callback (creates/updates members)
+│       │   └── status/route.ts           # GET: admin OAuth status; POST: generate re-auth links
+│       │
 │       ├── manage/[token]/
 │       │   ├── route.ts                  # GET booking by manage token
-│       │   ├── cancel/route.ts           # POST cancel booking
-│       │   └── reschedule/route.ts       # POST reschedule booking
+│       │   ├── cancel/route.ts           # POST cancel booking (uses OAuth tokens)
+│       │   └── reschedule/route.ts       # POST reschedule booking (uses OAuth tokens)
 │       │
-│       ├── cron/reminders/route.ts       # Cron: send booking reminders
+│       ├── cron/reminders/route.ts       # Cron: send booking reminders + OAuth token health check
 │       │
 │       └── admin/
 │           ├── event-types/route.ts      # CRUD event types (GET, POST, PATCH, DELETE)
 │           ├── team-members/route.ts     # CRUD team members
 │           ├── teams/route.ts            # CRUD teams
-│           ├── teams/[teamId]/members/route.ts  # Manage team memberships
+│           ├── teams/[teamId]/members/route.ts  # Manage team memberships (includes OAuth status)
 │           ├── team-event-links/route.ts # Link event types to teams
 │           ├── analytics/route.ts        # GET analytics data
 │           ├── bookings/outcome/route.ts # PATCH: mark booking outcome (completed/no-show)
 │           ├── webhooks/route.ts         # CRUD webhooks
 │           ├── workflows/route.ts        # CRUD workflow automations
-│           ├── invite/route.ts           # POST: generate invite links
+│           ├── invite/route.ts           # POST/GET/DELETE: manage invite links
 │           ├── join-requests/route.ts    # GET/PATCH: manage join requests
 │           └── sms-settings/route.ts     # GET/PATCH: SMS notification settings
 │
 ├── lib/
 │   ├── supabase.ts                       # Supabase client (admin + public)
-│   ├── google-calendar.ts                # Google Calendar API wrapper
-│   ├── availability.ts                   # Slot generation + round-robin logic
+│   ├── google-calendar.ts                # Google Calendar API wrapper (OAuth + service account fallback)
+│   ├── google-oauth.ts                   # Google OAuth: token encryption, exchange, refresh, state management
+│   ├── availability.ts                   # Slot generation + round-robin logic (passes OAuth tokens)
 │   ├── smart-scheduling.ts               # "Popular" / "Recommended" slot badges
 │   ├── no-show-score.ts                  # No-show risk scoring (0-100)
 │   ├── email.ts                          # SendGrid email templates
+│   ├── slack-notify.ts                   # Slack DM/webhook notifications for re-auth
 │   ├── webhooks.ts                       # Webhook delivery + HMAC signing + retry
 │   ├── workflows.ts                      # Workflow automation engine (email/SMS triggers)
 │   ├── api-errors.ts                     # Standardized API error responses
@@ -125,7 +140,8 @@ src/
     ├── schema.sql                        # Full database schema + seed data
     └── migrations/
         ├── 20260219_add_teams.sql                # Teams, memberships, availability rules
-        └── 20260219_add_noshow_and_smart_scheduling.sql # No-show scoring + smart scheduling columns
+        ├── 20260219_add_noshow_and_smart_scheduling.sql # No-show scoring + smart scheduling columns
+        └── 20260226_add_google_oauth.sql         # OAuth columns on team_members, reauth_tokens table, invite_tokens table
 ```
 
 ---
@@ -134,7 +150,7 @@ src/
 
 | Table | Purpose |
 |---|---|
-| `team_members` | People who can be booked (name, email, Google Calendar ID, last_booked_at for round-robin) |
+| `team_members` | People who can be booked (name, email, Google Calendar ID, OAuth tokens, avatar_url, last_booked_at for round-robin) |
 | `event_types` | Bookable events (title, slug, description, duration, color, buffers, limits, booking_questions) |
 | `bookings` | All bookings (invitee info, start/end time, status, manage_token, no_show_score, risk_tier, outcome, custom_answers, reminder_sent_at) |
 | `availability_rules` | Per-member working hours by day of week |
@@ -146,6 +162,8 @@ src/
 | `site_settings` | Branding config (company name, logo URL, primary/accent colors) |
 | `workflows` | Workflow automations (trigger, action, recipient, template) |
 | `join_requests` | Team member join requests (pending/approved/rejected) |
+| `invite_tokens` | Invite links for OAuth onboarding (token, is_used, used_by_email, expires_at) |
+| `reauth_tokens` | Re-auth links for reconnecting expired OAuth (token, team_member_id, is_used, expires_at) |
 | `sms_settings` | SMS notification config |
 
 ---
@@ -166,6 +184,17 @@ src/
 - **Google Meet auto-creation** — every booking creates a Google Meet link (via `conferenceData` on Calendar event), included in confirmation emails with join button + dial-in details
 - **Multi-team event types** — one event type can belong to multiple teams via `team_event_types` join table; team landing pages, booking pages, and APIs all resolve through both direct `team_id` and the join table
 - **Booking confirmation emails** — HTML emails via SendGrid with meeting details + manage link
+
+### Google OAuth Calendar Integration
+- **Per-user OAuth** — each team member connects their Google Calendar via "Sign in with Google" (replaces manual calendar sharing)
+- **OAuth onboarding** — invite link → `/join?invite={token}` → "Connect with Google" button → Google consent → member auto-created with name, email, avatar from Google
+- **Token encryption** — refresh tokens encrypted with AES-256-GCM (via `TOKEN_ENCRYPTION_KEY`) before storage in Supabase
+- **2-tier calendar auth** — OAuth token used as primary auth for all calendar operations; service account as fallback if OAuth fails
+- **Token health check** — cron job (in `/api/cron/reminders`) detects revoked/expired tokens, sends Slack DM with reconnect link
+- **Re-auth flow** — admin generates re-auth link from `/api/auth/status`, member clicks link → Google OAuth → tokens refreshed
+- **CSRF protection** — OAuth state parameter is HMAC-SHA256 signed with 10-minute expiry
+- **Connection status** — admin API at `/api/auth/status` shows connected/disconnected/revoked per member
+- **Redirect URI auto-detection** — OAuth redirect URI derived from request URL at runtime (works on any domain including deploy previews)
 
 ### Booking Management
 - **Manage booking page** (`/manage/[token]`) — view booking details via unique token
@@ -206,7 +235,7 @@ src/
 ## Features — What's Not Built Yet
 
 ### High Priority (UX Audit Findings)
-- **Organizer avatar/info** — show team member photo and name on booking page (needs `avatar_url` column on teams or member profiles)
+- **Organizer avatar/info** — show team member photo and name on booking page (`avatar_url` now exists on `team_members` via OAuth, UI integration pending)
 - **Two-panel desktop layout** — left panel for event details, right panel for date/time selection (CSS-only at md: breakpoint)
 
 ### Medium Priority
@@ -234,17 +263,46 @@ src/
 3. If available: create Google Calendar event, create booking, update `last_booked_at`
 4. If not: try next member in the round-robin order
 
+### Team Member Onboarding Flow (OAuth)
+```
+Admin generates invite link → /admin/join-requests (People tab)
+  → invite_tokens row created (32-char hex, 7-day expiry)
+  → admin sends link to team member
+
+Team member clicks invite link → /join?invite={token}
+  → validates invite token (hex, 10-64 chars, not expired, not used)
+  → shows "Connect with Google" button
+  → click → GET /api/auth/google?invite={token}
+    → validates invite again
+    → creates HMAC-signed state (type=join, invite token, 10-min expiry)
+    → redirects to Google OAuth consent screen
+  → user approves scopes (calendar, userinfo.email, userinfo.profile, openid)
+  → Google redirects to /api/auth/google/callback?code={code}&state={state}
+    → verifies state (HMAC + expiry)
+    → exchanges code for access + refresh tokens
+    → fetches Google userinfo (name, email, picture)
+    → encrypts refresh token (AES-256-GCM)
+    → creates team_members row (is_active=false, pending admin approval)
+    → creates join_requests row (status=pending)
+    → marks invite_tokens as used
+    → redirects to /join?success=true&name={name}&avatar={avatar}
+  → success page shows avatar + name + "pending admin approval" message
+
+Admin approves in /admin/join-requests → member activated
+```
+
 ### Booking Flow Data Pipeline
 ```
 Public booking page (SSR) → fetches eventType (including description) from Supabase
 BookingClient (CSR) → fetches availability slots via /api/availability
-  → user picks date → fetches time slots
+  → user picks date → fetches time slots (uses member's OAuth token for getFreeBusy)
   → user picks time → shows form
   → user submits → POST /api/book
     → validates inputs + rate limits
     → calculates no-show risk score
     → round-robin assigns team member
-    → creates Google Calendar event
+    → fetches member's google_oauth_refresh_token
+    → creates Google Calendar event (OAuth primary, service account fallback)
     → creates Supabase booking row
     → sends confirmation email (SendGrid)
     → fires webhooks (best-effort, non-blocking)
@@ -330,11 +388,11 @@ All public pages and APIs (team landing, booking page, `/api/availability`, `/ap
 
 **Core functions:**
 
-- `getNextTeamMember(teamId?)` — Returns the single next member in round-robin order. Queries `team_members` ordered by `last_booked_at ASC` (longest-idle first). When `teamId` is provided, joins through `team_memberships` to scope the pool. Returns `null` if no active members exist.
+- `getNextTeamMember(teamId?)` — Returns the single next member in round-robin order. Queries `team_members` ordered by `last_booked_at ASC` (longest-idle first). When `teamId` is provided, joins through `team_memberships` to scope the pool. Returns `null` if no active members exist. Now also returns `google_oauth_refresh_token`.
 
-- `getAllTeamMembers(teamId?)` — Same scoping logic but returns all active members (used by `getCombinedAvailability` to check every member's calendar in parallel).
+- `getAllTeamMembers(teamId?)` — Same scoping logic but returns all active members (used by `getCombinedAvailability` to check every member's calendar in parallel). Now also returns `google_oauth_refresh_token`.
 
-- `getAvailableSlots(memberId, calendarId, dateStr, duration, timezone, constraints)` — The main slot generator for a single member on a single date. Algorithm:
+- `getAvailableSlots(memberId, calendarId, dateStr, duration, timezone, constraints, oauthRefreshToken?)` — The main slot generator for a single member on a single date. Passes OAuth token to `getFreeBusy()` when available. Algorithm:
   1. Looks up the member's `availability_rules` for the day-of-week
   2. Uses the **noon-UTC trick** (`dateStr + "T12:00:00Z"`) to safely determine day-of-week without timezone boundary bugs
   3. Parses `start_time`/`end_time` from the rule (e.g., "09:00"/"17:00") and converts from local timezone to UTC via `fromZonedTime`
@@ -344,27 +402,45 @@ All public pages and APIs (team landing, booking page, `/api/availability`, `/ap
   7. Iterates in 15-min steps, checking each slot against busy periods. Buffer zones extend the "blocked" window before and after each slot (`beforeBufferMins`, `afterBufferMins`). Overlap check: `bufferedStart < busyEnd && bufferedEnd > busyStart`
   8. Returns all non-conflicting slots as `{ start, end }` ISO pairs
 
-- `getCombinedAvailability(dateStr, duration, timezone, constraints, teamId?)` — Union merge for round-robin. Calls `getAvailableSlots` for **every** active team member in parallel (`Promise.all`), then merges into a `Map<slotStart, memberIds[]>`. A slot appears if **at least one** member is free. Each slot includes `available_member_ids` so the booking API knows which members can accept that time.
+- `getCombinedAvailability(dateStr, duration, timezone, constraints, teamId?)` — Union merge for round-robin. Calls `getAvailableSlots` for **every** active team member in parallel (`Promise.all`), passing each member's OAuth refresh token when available. Merges into a `Map<slotStart, memberIds[]>`. A slot appears if **at least one** member is free. Each slot includes `available_member_ids` so the booking API knows which members can accept that time.
 
 **Gotcha:** Slots are keyed by start time string, so all members must produce the same 15-min boundary times. The 15-min step size is hardcoded (`slotBoundary = 15`).
 
-### `src/lib/google-calendar.ts` — 3-Tier Calendar Fallback
+### `src/lib/google-calendar.ts` — 4-Tier Calendar Fallback
 
-**Auth pattern:** `getCalendarClient(impersonateEmail?)` creates a JWT-authenticated client. When `impersonateEmail` is passed, sets `subject` on the JWT for domain-wide delegation (Workspace only).
+**Auth pattern:** All calendar functions accept an optional `oauthRefreshToken` parameter. When provided, the function first tries per-user OAuth authentication. Falls back to service account tiers.
 
-**3-Tier fallback** (used identically for create, update, and delete):
+**4-Tier fallback** (used identically for create, update, delete, and free/busy):
 
 | Tier | Strategy | When it works |
 |------|----------|--------------|
+| 0 | **Per-user OAuth** — `getOAuthCalendarClient(accessToken)` from `google-oauth.ts`, operates on `"primary"` | Member has connected via Google OAuth and token is valid |
 | 1 | **Impersonation** — `getCalendarClient(calendarId)`, insert to `"primary"` | Google Workspace org with domain-wide delegation enabled for the service account |
 | 2 | **Shared calendar** — `getCalendarClient()`, insert to `calendarId` directly | Team member shared their calendar with the service account (editor role) |
 | 3 | **Service account own calendar** — `getCalendarClient()`, insert to `"primary"`, add both team member and invitee as attendees | Always works (service account's own calendar), but event lives on the SA calendar not the team member's |
 
-Each tier tries silently and catches errors to fall through. The 3rd tier is the guaranteed fallback.
+Each tier tries silently and catches errors to fall through. `tryGetOAuthClient()` handles token refresh before attempting OAuth tier. If refresh fails, token is marked as revoked and falls through to service account tiers.
 
 **Google Meet auto-creation:** Every `createCalendarEvent` and `updateCalendarEvent` call includes `conferenceData.createRequest` with `type: "hangoutsMeet"` and `conferenceDataVersion: 1`. The response is parsed by `extractMeetDetails()` which pulls `meetLink`, `meetPhone`, and `meetPin` from the conference entry points.
 
 **Gotcha:** `calendarId` in this codebase means the team member's email address (used as both the calendar identifier and the impersonation subject). This is a Google Calendar convention — a user's primary calendar ID equals their email.
+
+### `src/lib/google-oauth.ts` — OAuth Token Management
+
+**Token encryption:** AES-256-GCM using `TOKEN_ENCRYPTION_KEY` (32-byte hex). Format: `{iv}:{authTag}:{ciphertext}` (all hex-encoded). Used for `google_oauth_refresh_token` column.
+
+**Key functions:**
+- `getRedirectUri(requestUrl?)` — Computes OAuth callback URL. Priority: `GOOGLE_OAUTH_REDIRECT_URI` env var → `NEXT_PUBLIC_SITE_URL` + path → derive from `request.url` origin. Strips trailing slashes to avoid double-slash bugs.
+- `getGoogleOAuthUrl(state, redirectUri)` — Builds Google consent URL. Scopes: `calendar`, `userinfo.email`, `userinfo.profile`, `openid`. Always requests `access_type=offline` + `prompt=consent` to ensure refresh token.
+- `exchangeCodeForTokens(code, redirectUri)` — Exchanges auth code for access + refresh tokens. The `redirectUri` must match what was used in the consent URL.
+- `refreshAccessToken(encryptedRefreshToken)` — Decrypts token, refreshes with Google. Returns `null` if token is revoked/expired (detected via `invalid_grant`).
+- `getValidAccessToken(encryptedRefreshToken, memberId)` — Refreshes token; marks member as revoked in DB if refresh fails.
+- `createOAuthState(payload)` / `verifyOAuthState(state)` — HMAC-SHA256 signed state tokens with 10-minute expiry (CSRF protection).
+- `createReauthToken(memberId)` / `validateReauthToken(token)` — 7-day expiring re-auth tokens stored in `reauth_tokens` table.
+
+**OAuth flow paths:**
+1. **Join (new member):** Invite link → `/api/auth/google?invite={token}` → Google → `/api/auth/google/callback` → creates team member (inactive) + join request → redirects to `/join?success=true`
+2. **Re-auth (existing member):** Re-auth link → `/api/auth/google?reauth={token}` → Google → callback → updates tokens → redirects to `/join?reauth=success`
 
 ### `src/lib/smart-scheduling.ts` — Intelligence Badges
 
@@ -439,6 +515,23 @@ All emails include Reschedule + Cancel buttons via `manageButtonsHtml()` (except
 **SMS support:** Checks `site_settings` for `sms_enabled=true`, then fetches Twilio credentials from `site_settings`. Sends via Twilio REST API with Basic auth. Currently only sends to invitee phone (host SMS would need phone column on `team_members`).
 
 **Known limitation:** No deduplication table for timed workflows — a `workflow_executions` join table is mentioned in comments but not yet implemented. Currently relies on the timing window to avoid duplicates, which could fire twice if cron runs more frequently than 15 minutes.
+
+---
+
+## Google Cloud Console Setup (for OAuth)
+
+The OAuth integration requires these Google Cloud Console settings:
+
+1. **OAuth 2.0 Client ID** — Web application type, from APIs & Services → Credentials
+2. **Authorized redirect URI:** `https://sparkling-tarsier-bc26ef.netlify.app/api/auth/google/callback` (also add deploy preview URLs for testing)
+3. **OAuth consent screen:** Internal (Workspace-only) — no Google app verification needed
+4. **Required APIs:** Google Calendar API, Google People API (for userinfo)
+5. **Scopes:** `calendar`, `userinfo.email`, `userinfo.profile`, `openid`
+
+**Common OAuth errors:**
+- `Error 400: invalid_request` with relative `redirect_uri` → `NEXT_PUBLIC_SITE_URL` is empty. Code now auto-derives from request URL, but env var should be set.
+- `Access blocked: Authorization Error` → consent screen may be in "Testing" mode with limited test users, or redirect URI not registered.
+- `Error 400: redirect_uri_mismatch` → the callback URL registered in Google Cloud Console doesn't match what the app sends.
 
 ---
 

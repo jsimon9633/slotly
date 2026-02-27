@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         role,
         is_active,
         joined_at,
-        team_members ( id, name, email, is_active )
+        team_members ( id, name, email, is_active, avatar_url, google_oauth_connected_at, google_oauth_revoked_at, google_oauth_refresh_token )
       `)
       .eq("team_id", teamId)
       .eq("is_active", true);
@@ -41,7 +41,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       membership_id: m.id,
       role: m.role,
       joined_at: m.joined_at,
-      ...m.team_members,
+      id: m.team_members.id,
+      name: m.team_members.name,
+      email: m.team_members.email,
+      is_active: m.team_members.is_active,
+      avatar_url: m.team_members.avatar_url || null,
+      connection_status: m.team_members.google_oauth_revoked_at
+        ? "revoked"
+        : m.team_members.google_oauth_connected_at
+        ? "connected"
+        : m.team_members.google_oauth_refresh_token
+        ? "connected"
+        : "service_account",
     }));
 
     return NextResponse.json(members);

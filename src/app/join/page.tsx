@@ -5,22 +5,14 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Zap,
-  ArrowRight,
-  ArrowLeft,
-  User,
-  Mail,
-  Calendar,
   CheckCircle2,
-  Copy,
-  Check,
-  ExternalLink,
   Loader2,
   ShieldX,
+  Calendar,
+  RefreshCw,
 } from "lucide-react";
 
-type Step = "validating" | "invalid" | "info" | "calendar" | "done";
-
-const SERVICE_ACCOUNT_EMAIL = "slotly-calendar@slotly-fast-scheduling.iam.gserviceaccount.com";
+type Step = "validating" | "invalid" | "connect" | "done" | "reauth_done" | "error";
 
 export default function JoinPage() {
   return (
@@ -39,18 +31,32 @@ export default function JoinPage() {
 function JoinPageInner() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite") || "";
+  const success = searchParams.get("success");
+  const reauth = searchParams.get("reauth");
+  const errorCode = searchParams.get("error");
+  const userName = searchParams.get("name") || "";
+  const userAvatar = searchParams.get("avatar") || "";
 
   const [step, setStep] = useState<Step>("validating");
   const [invalidReason, setInvalidReason] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [calendarShared, setCalendarShared] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
-  // Validate invite token on mount
+  // Handle OAuth callback redirects
   useEffect(() => {
+    if (success) {
+      setStep("done");
+      return;
+    }
+    if (reauth === "success") {
+      setStep("reauth_done");
+      return;
+    }
+    if (errorCode) {
+      setStep("error");
+      setInvalidReason(getErrorMessage(errorCode));
+      return;
+    }
+
+    // Normal invite flow — validate token
     if (!inviteToken) {
       setInvalidReason("No invite token provided. You need an invite link from your admin.");
       setStep("invalid");
@@ -58,12 +64,14 @@ function JoinPageInner() {
     }
 
     fetch(`/api/invite/validate?token=${encodeURIComponent(inviteToken)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.valid) {
-          setStep("info");
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.ok && data.valid) {
+          setStep("connect");
         } else {
-          setInvalidReason(data.error || "Invalid invite link.");
+          // Include status code for debugging
+          const statusHint = !res.ok ? ` (${res.status})` : "";
+          setInvalidReason((data.error || "Invalid invite link.") + statusHint);
           setStep("invalid");
         }
       })
@@ -71,57 +79,7 @@ function JoinPageInner() {
         setInvalidReason("Could not verify invite. Please try again.");
         setStep("invalid");
       });
-  }, [inviteToken]);
-
-  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const canProceedInfo = name.trim().length >= 2 && isValidEmail;
-
-  const copyServiceEmail = () => {
-    navigator.clipboard.writeText(SERVICE_ACCOUNT_EMAIL);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          calendarShared,
-          inviteToken,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Something went wrong.");
-        setSubmitting(false);
-        return;
-      }
-
-      setStep("done");
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const wizardSteps = [
-    { key: "info", label: "Your info" },
-    { key: "calendar", label: "Share & submit" },
-  ];
-
-  const currentIndex = wizardSteps.findIndex(
-    (s) => s.key === step || (step === "validating" && s.key === "info")
-  );
+  }, [inviteToken, success, reauth, errorCode]);
 
   return (
     <div className="min-h-screen bg-[#fafbfc] flex flex-col">
@@ -152,9 +110,7 @@ function JoinPageInner() {
             <div className="w-14 h-14 bg-red-50 rounded-2xl grid place-items-center mx-auto mb-4">
               <ShieldX className="w-7 h-7 text-red-400" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              {invalidReason.includes("not found") ? "Invite no longer valid" : "Invalid invite"}
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Invalid invite</h1>
             <p className="text-base text-gray-400 max-w-[380px] mx-auto">
               {invalidReason}
             </p>
@@ -164,259 +120,164 @@ function JoinPageInner() {
           </div>
         )}
 
-        {/* Progress bar (only for wizard steps) */}
-        {["info", "calendar"].includes(step) && (
-          <div className="flex items-center gap-2 mb-6 animate-fade-in">
-            {wizardSteps.map((s, i) => (
-              <div key={s.key} className="flex-1 flex flex-col items-center gap-1.5">
-                <div
-                  className={`h-1.5 w-full rounded-full transition-all duration-300 ${
-                    i <= currentIndex ? "bg-indigo-500" : "bg-gray-200"
-                  }`}
-                />
-                <span
-                  className={`text-sm font-medium transition-colors ${
-                    i <= currentIndex ? "text-indigo-600" : "text-gray-400"
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </div>
-            ))}
+        {/* Error from OAuth callback */}
+        {step === "error" && (
+          <div className="animate-fade-in-up text-center pt-8">
+            <div className="w-14 h-14 bg-red-50 rounded-2xl grid place-items-center mx-auto mb-4">
+              <ShieldX className="w-7 h-7 text-red-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
+            <p className="text-base text-gray-400 max-w-[380px] mx-auto">
+              {invalidReason}
+            </p>
+            {errorCode === "consent_denied" && inviteToken && (
+              <a
+                href={`/api/auth/google?invite=${encodeURIComponent(inviteToken)}`}
+                className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Try again with a different account
+              </a>
+            )}
+            {errorCode !== "consent_denied" && (
+              <p className="text-sm text-gray-300 mt-4 max-w-[380px] mx-auto">
+                Please ask your admin for a new invite link and try again.
+              </p>
+            )}
           </div>
         )}
 
-        {/* Step 1: Your Info */}
-        {step === "info" && (
-          <div className="animate-fade-in-up">
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">Welcome to Slotly</h1>
-            <p className="text-base text-gray-400 mb-6">
-              Let&apos;s get you set up for round-robin scheduling.
+        {/* Connect with Google (single-action step) */}
+        {step === "connect" && (
+          <div className="animate-fade-in-up text-center pt-8">
+            <div className="w-14 h-14 bg-indigo-50 rounded-2xl grid place-items-center mx-auto mb-4">
+              <Calendar className="w-7 h-7 text-indigo-500" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Connect your calendar</h1>
+            <p className="text-base text-gray-400 max-w-[400px] mx-auto mb-8">
+              Sign in with your Google Workspace account to connect your calendar.
+              We&apos;ll pull your name, email, and photo automatically.
             </p>
 
-            <div className="space-y-5">
-              <div>
-                <label className="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
-                  <User className="w-4 h-4" />
-                  Full name
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Sarah Chen"
-                  className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
-                  <Mail className="w-4 h-4" />
-                  Google Workspace email
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@yourcompany.com"
-                  className="w-full px-4 py-3 text-base bg-white border-[1.5px] border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all placeholder:text-gray-300"
-                />
-                <p className="text-sm text-gray-400 mt-1.5">
-                  Must be a Google Workspace account so we can check your availability.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setStep("calendar")}
-              disabled={!canProceedInfo}
-              className={`mt-8 w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-base font-semibold transition-all ${
-                canProceedInfo
-                  ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
-                  : "bg-gray-100 text-gray-300 cursor-not-allowed"
-              }`}
+            {/* Google Sign-in button (follows Google branding guidelines) */}
+            <a
+              href={`/api/auth/google?invite=${encodeURIComponent(inviteToken)}`}
+              className="inline-flex items-center gap-3 px-6 py-3.5 bg-white border-[1.5px] border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm group"
             >
-              Next
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Step 2: Share Calendar & Submit */}
-        {step === "calendar" && (
-          <div className="animate-fade-in-up">
-            <button
-              onClick={() => setStep("info")}
-              className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1 mb-4 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </button>
-
-            <div className="flex items-center gap-2 mb-1">
-              <Calendar className="w-5 h-5 text-indigo-500" />
-              <h1 className="text-2xl font-bold text-gray-900">Share your calendar</h1>
-            </div>
-            <p className="text-base text-gray-400 mb-5">
-              Share your Google Calendar with our service account so Slotly can check when you&apos;re free.
-            </p>
-
-            {/* Instructions card */}
-            <div className="bg-white rounded-xl border-[1.5px] border-gray-100 p-5 space-y-4">
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
-                  1
-                </div>
-                <div>
-                  <p className="text-base text-gray-700 font-medium">Open Google Calendar settings</p>
-                  <a
-                    href="https://calendar.google.com/calendar/r/settings"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-indigo-500 hover:text-indigo-700 flex items-center gap-1 mt-0.5"
-                  >
-                    Open settings
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
-                  2
-                </div>
-                <div>
-                  <p className="text-base text-gray-700 font-medium">
-                    Find your calendar in the left sidebar
-                  </p>
-                  <p className="text-sm text-gray-400 mt-0.5">
-                    Under &quot;Settings for my calendars&quot;, click the calendar with your name to open its settings.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
-                  3
-                </div>
-                <p className="text-base text-gray-700 font-medium">
-                  Scroll to &quot;Share with specific people or groups&quot;
-                </p>
-              </div>
-
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
-                  4
-                </div>
-                <div className="flex-1">
-                  <p className="text-base text-gray-700 font-medium">Add this email with &quot;See all event details&quot;</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <code className="text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-600 break-all flex-1">
-                      {SERVICE_ACCOUNT_EMAIL}
-                    </code>
-                    <button
-                      onClick={copyServiceEmail}
-                      className="flex-shrink-0 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                      title="Copy email"
-                    >
-                      {copied ? (
-                        <Check className="w-4 h-4 text-emerald-500" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-gray-400" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full grid place-items-center flex-shrink-0 text-xs font-bold mt-0.5">
-                  5
-                </div>
-                <p className="text-base text-gray-700 font-medium">Click &quot;Send&quot; to confirm</p>
-              </div>
-            </div>
-
-            {/* Confirmation checkbox */}
-            <label className="mt-5 flex items-start gap-3 cursor-pointer group">
-              <div className="relative mt-0.5">
-                <input
-                  type="checkbox"
-                  checked={calendarShared}
-                  onChange={(e) => setCalendarShared(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-5 h-5 border-[1.5px] border-gray-300 rounded-md peer-checked:bg-indigo-600 peer-checked:border-indigo-600 transition-all grid place-items-center group-hover:border-indigo-300">
-                  {calendarShared && <Check className="w-3 h-3 text-white" />}
-                </div>
-              </div>
-              <span className="text-base text-gray-600">
-                I&apos;ve shared my Google Calendar with the Slotly service account
+              {/* Google G logo */}
+              <svg width="20" height="20" viewBox="0 0 48 48">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+              </svg>
+              <span className="text-base font-semibold text-gray-700 group-hover:text-gray-900">
+                Connect with Google
               </span>
-            </label>
+            </a>
 
-            {/* Summary */}
-            <div className="mt-5 bg-gray-50 rounded-xl p-4 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400">Name</span>
-                <span className="text-base text-gray-900 font-medium">{name}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400">Email</span>
-                <span className="text-base text-gray-900 font-medium">{email}</span>
-              </div>
-            </div>
-
-            <div className="mt-3 bg-indigo-50 rounded-xl p-4">
+            <div className="mt-8 bg-indigo-50 rounded-xl p-4 text-left max-w-[400px] mx-auto">
               <p className="text-sm text-indigo-700">
-                <strong>What happens next:</strong> Your admin will review your request and add you to the round-robin. Slotly uses your live Google Calendar — no extra setup needed.
+                <strong>What happens next:</strong> After connecting, your admin will review
+                your request and add you to a team. You&apos;ll start receiving bookings
+                once approved.
               </p>
             </div>
 
-            {error && (
-              <div className="mt-3 bg-red-50 text-red-600 text-sm rounded-xl p-4 font-medium">
-                {error}
-              </div>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={!calendarShared || submitting}
-              className={`mt-5 w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-base font-semibold transition-all ${
-                calendarShared && !submitting
-                  ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
-                  : "bg-gray-100 text-gray-300 cursor-not-allowed"
-              }`}
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                <>
-                  Submit request
-                  <CheckCircle2 className="w-4 h-4" />
-                </>
-              )}
-            </button>
+            <p className="text-xs text-gray-300 mt-4 max-w-[400px] mx-auto">
+              Make sure to sign in with your <strong className="text-gray-400">work Google account</strong>,
+              not a personal Gmail. We only access your calendar to check availability and
+              create booking events. You can disconnect anytime.
+            </p>
           </div>
         )}
 
-        {/* Done */}
+        {/* Success — new member */}
         {step === "done" && (
           <div className="animate-scale-in text-center pt-8">
             <div className="w-14 h-14 bg-emerald-50 rounded-2xl grid place-items-center mx-auto mb-4">
               <CheckCircle2 className="w-7 h-7 text-emerald-500 animate-check-pop" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">You&apos;re all set!</h1>
+
+            {userAvatar && (
+              <img
+                src={decodeURIComponent(userAvatar)}
+                alt=""
+                className="w-16 h-16 rounded-full mx-auto mb-3 border-2 border-white shadow-sm"
+              />
+            )}
+
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              {success === "reconnected"
+                ? "Calendar reconnected!"
+                : success === "reactivated"
+                ? "Welcome back!"
+                : "You're all set!"}
+            </h1>
+
+            {userName && (
+              <p className="text-lg text-gray-600 font-medium mb-2">
+                {decodeURIComponent(userName)}
+              </p>
+            )}
+
             <p className="text-base text-gray-400 max-w-[360px] mx-auto">
-              Your request has been submitted. An admin will review it and add you to the
-              round-robin scheduling. You&apos;ll start receiving bookings once approved.
+              {success === "reconnected"
+                ? "Your Google Calendar is reconnected. No action needed."
+                : "Your calendar is connected and your request has been submitted. An admin will review and add you to the team."}
+            </p>
+          </div>
+        )}
+
+        {/* Success — re-auth */}
+        {step === "reauth_done" && (
+          <div className="animate-scale-in text-center pt-8">
+            <div className="w-14 h-14 bg-emerald-50 rounded-2xl grid place-items-center mx-auto mb-4">
+              <RefreshCw className="w-7 h-7 text-emerald-500" />
+            </div>
+
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Calendar reconnected!</h1>
+
+            {userName && (
+              <p className="text-lg text-gray-600 font-medium mb-2">
+                {decodeURIComponent(userName)}
+              </p>
+            )}
+
+            <p className="text-base text-gray-400 max-w-[360px] mx-auto">
+              Your Google Calendar connection has been refreshed. You&apos;ll continue
+              receiving bookings as normal.
             </p>
           </div>
         )}
       </main>
     </div>
   );
+}
+
+function getErrorMessage(code: string): string {
+  switch (code) {
+    case "consent_denied":
+      return "Google blocked the connection. This usually means you signed in with a personal Gmail instead of your work Google Workspace account. Please try again with your work email.";
+    case "missing_params":
+      return "The OAuth callback was missing required parameters. Please try again.";
+    case "invalid_state":
+      return "The authentication session expired. Please try again with a fresh invite link.";
+    case "no_refresh_token":
+      return "Google did not provide the required permissions. Please try again and make sure to approve all requested access.";
+    case "no_email":
+      return "Could not retrieve your email from Google. Please try again.";
+    case "invite_expired":
+      return "Your invite link has expired or was already used.";
+    case "create_failed":
+      return "Failed to create your account. Please try again or contact your admin.";
+    case "reauth_expired":
+      return "Your reconnect link has expired. Please ask your admin for a new one.";
+    case "email_mismatch":
+      return "The Google account you signed in with doesn't match the email on file. Please sign in with the correct account.";
+    case "server_error":
+      return "An unexpected error occurred. Please try again.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
 }

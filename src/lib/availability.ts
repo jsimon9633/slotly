@@ -31,7 +31,10 @@ export async function getNextTeamMember(teamId?: string): Promise<{
   name: string;
   email: string;
   google_calendar_id: string;
+  google_oauth_refresh_token?: string;
 } | null> {
+  const selectFields = "id, name, email, google_calendar_id, google_oauth_refresh_token";
+
   if (teamId) {
     // Join through team_memberships to scope to team
     const { data: memberships, error: mErr } = await supabaseAdmin
@@ -46,7 +49,7 @@ export async function getNextTeamMember(teamId?: string): Promise<{
 
     const { data, error } = await supabaseAdmin
       .from("team_members")
-      .select("id, name, email, google_calendar_id")
+      .select(selectFields)
       .eq("is_active", true)
       .in("id", memberIds)
       .order("last_booked_at", { ascending: true })
@@ -60,7 +63,7 @@ export async function getNextTeamMember(teamId?: string): Promise<{
   // Fallback: all active members (legacy behavior)
   const { data, error } = await supabaseAdmin
     .from("team_members")
-    .select("id, name, email, google_calendar_id")
+    .select(selectFields)
     .eq("is_active", true)
     .order("last_booked_at", { ascending: true })
     .limit(1)
@@ -74,6 +77,8 @@ export async function getNextTeamMember(teamId?: string): Promise<{
  * Get all active team members, optionally scoped to a team.
  */
 export async function getAllTeamMembers(teamId?: string) {
+  const selectFields = "id, name, google_calendar_id, google_oauth_refresh_token";
+
   if (teamId) {
     const { data: memberships } = await supabaseAdmin
       .from("team_memberships")
@@ -87,7 +92,7 @@ export async function getAllTeamMembers(teamId?: string) {
 
     const { data } = await supabaseAdmin
       .from("team_members")
-      .select("id, name, google_calendar_id")
+      .select(selectFields)
       .eq("is_active", true)
       .in("id", memberIds)
       .order("last_booked_at", { ascending: true });
@@ -97,7 +102,7 @@ export async function getAllTeamMembers(teamId?: string) {
 
   const { data } = await supabaseAdmin
     .from("team_members")
-    .select("id, name, google_calendar_id")
+    .select(selectFields)
     .eq("is_active", true)
     .order("last_booked_at", { ascending: true });
 
@@ -127,7 +132,8 @@ export async function getAvailableSlots(
   dateStr: string, // YYYY-MM-DD
   durationMinutes: number,
   timezone: string,
-  constraints: SchedulingConstraints = { beforeBufferMins: 0, afterBufferMins: 0, minNoticeHours: 0 }
+  constraints: SchedulingConstraints = { beforeBufferMins: 0, afterBufferMins: 0, minNoticeHours: 0 },
+  oauthRefreshToken?: string
 ): Promise<TimeSlot[]> {
   // Get the day's availability rules
   const rules = await getAvailabilityRules(teamMemberId);
@@ -166,11 +172,12 @@ export async function getAvailableSlots(
   const roundedStart = setMinutes(setHours(new Date(effectiveStart), effectiveStart.getHours()), roundedMins);
   const adjustedStart = isAfter(roundedStart, effectiveStart) ? roundedStart : addMinutes(effectiveStart, slotBoundary - (mins % slotBoundary));
 
-  // Get busy times from Google Calendar
+  // Get busy times from Google Calendar (OAuth if available, service account fallback)
   const busySlots = await getFreeBusy(
     calendarId,
     workStart.toISOString(),
-    workEnd.toISOString()
+    workEnd.toISOString(),
+    oauthRefreshToken
   );
 
   // Generate all possible slots
@@ -219,7 +226,7 @@ export async function getCombinedAvailability(
   const members = await getAllTeamMembers(teamId);
   if (members.length === 0) return [];
 
-  // Get slots for each member
+  // Get slots for each member (passing OAuth token if available)
   const memberSlots = await Promise.all(
     members.map(async (member) => {
       const slots = await getAvailableSlots(
@@ -228,7 +235,8 @@ export async function getCombinedAvailability(
         dateStr,
         durationMinutes,
         timezone,
-        constraints
+        constraints,
+        member.google_oauth_refresh_token || undefined
       );
       return { memberId: member.id, slots };
     })

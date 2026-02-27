@@ -300,6 +300,7 @@ export async function POST(request: NextRequest) {
         endTime: end.toISOString(),
         attendeeEmail: cleanEmail,
         timezone,
+        oauthRefreshToken: teamMember.google_oauth_refresh_token || undefined,
       });
       googleEventId = calResult.eventId;
       meetLink = calResult.meetLink;

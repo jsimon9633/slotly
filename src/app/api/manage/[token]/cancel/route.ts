@@ -37,7 +37,7 @@ export async function POST(
       status,
       google_event_id,
       event_types ( id, title, duration_minutes ),
-      team_members ( id, name, email, google_calendar_id )
+      team_members ( id, name, email, google_calendar_id, google_oauth_refresh_token )
     `)
     .eq("manage_token", token)
     .single();
@@ -77,7 +77,7 @@ export async function POST(
   // 2. Delete Google Calendar event
   if (booking.google_event_id && teamMember?.google_calendar_id) {
     try {
-      await deleteCalendarEvent(booking.google_event_id, teamMember.google_calendar_id);
+      await deleteCalendarEvent(booking.google_event_id, teamMember.google_calendar_id, teamMember.google_oauth_refresh_token || undefined);
     } catch (err) {
       calendarSynced = false;
       const classified = classifyGoogleError(err);

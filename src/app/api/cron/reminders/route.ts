@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { sendReminderEmail } from "@/lib/email";
 import { RISK_THRESHOLDS } from "@/lib/no-show-score";
 import { executeTimedWorkflows } from "@/lib/workflows";
+import { refreshAccessToken, createReauthToken } from "@/lib/google-oauth";
+import { sendSlackReauthNotification } from "@/lib/slack-notify";
 
 /**
  * GET /api/cron/reminders — Send 2-hour reminder emails for high-risk bookings.
@@ -113,10 +115,60 @@ export async function GET(request: NextRequest) {
       console.error("[Cron/Reminders] Workflow execution error:", wfErr instanceof Error ? wfErr.message : wfErr);
     }
 
+    // ── OAuth Token Health Check ──
+    // Check active members with OAuth tokens that may be revoked
+    let tokensChecked = 0;
+    let tokensRevoked = 0;
+    try {
+      const { data: oauthMembers } = await supabaseAdmin
+        .from("team_members")
+        .select("id, name, email, google_oauth_refresh_token, slack_user_id")
+        .eq("is_active", true)
+        .not("google_oauth_refresh_token", "is", null)
+        .is("google_oauth_revoked_at", null);
+
+      if (oauthMembers && oauthMembers.length > 0) {
+        for (const member of oauthMembers) {
+          tokensChecked++;
+          try {
+            const result = await refreshAccessToken(member.google_oauth_refresh_token!);
+            if (!result) {
+              // Token revoked — mark member and send notification
+              tokensRevoked++;
+              await supabaseAdmin
+                .from("team_members")
+                .update({ google_oauth_revoked_at: new Date().toISOString() })
+                .eq("id", member.id);
+
+              // Generate re-auth link and notify via Slack
+              const reauthToken = await createReauthToken(member.id);
+              const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+              const reauthUrl = `${siteUrl}/api/auth/google?reauth=${reauthToken}`;
+
+              await sendSlackReauthNotification({
+                teamMemberName: member.name,
+                teamMemberEmail: member.email,
+                reauthUrl,
+                slackUserId: member.slack_user_id || undefined,
+              });
+
+              console.log(`[Cron/OAuth] Token revoked for ${member.email}, notification sent`);
+            }
+          } catch (err) {
+            console.error(`[Cron/OAuth] Token check failed for ${member.email}:`, err instanceof Error ? err.message : err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Cron/OAuth] Token health check error:", err instanceof Error ? err.message : err);
+    }
+
     return NextResponse.json({
       sent,
       checked: bookings.length,
       workflows_executed: workflowsExecuted,
+      oauth_tokens_checked: tokensChecked,
+      oauth_tokens_revoked: tokensRevoked,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
