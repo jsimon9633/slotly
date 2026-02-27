@@ -9,6 +9,9 @@ import {
   getRedirectUri,
 } from "@/lib/google-oauth";
 
+// Ensure this route is never cached by Next.js / Netlify CDN
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/auth/google/callback — Google OAuth callback
  *

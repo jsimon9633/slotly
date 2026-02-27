@@ -64,12 +64,14 @@ function JoinPageInner() {
     }
 
     fetch(`/api/invite/validate?token=${encodeURIComponent(inviteToken)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.valid) {
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.ok && data.valid) {
           setStep("connect");
         } else {
-          setInvalidReason(data.error || "Invalid invite link.");
+          // Include status code for debugging
+          const statusHint = !res.ok ? ` (${res.status})` : "";
+          setInvalidReason((data.error || "Invalid invite link.") + statusHint);
           setStep("invalid");
         }
       })
