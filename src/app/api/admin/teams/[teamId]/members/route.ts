@@ -27,6 +27,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         id,
         role,
         is_active,
+        in_round_robin,
         joined_at,
         team_members ( id, name, email, is_active, avatar_url, google_oauth_connected_at, google_oauth_revoked_at, google_oauth_refresh_token )
       `)
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const members = (memberships || []).map((m: any) => ({
       membership_id: m.id,
       role: m.role,
+      in_round_robin: m.in_round_robin,
       joined_at: m.joined_at,
       id: m.team_members.id,
       name: m.team_members.name,
@@ -118,6 +120,52 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   return NextResponse.json(membership, { status: 201 });
+}
+
+/**
+ * PATCH /api/admin/teams/[teamId]/members — Toggle round-robin for a member.
+ *
+ * Body: { team_member_id: string, in_round_robin: boolean }
+ */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (token !== ADMIN_TOKEN) {
+    return unauthorized();
+  }
+
+  const { teamId } = await params;
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return badRequest("Invalid request body");
+  }
+
+  const { team_member_id, in_round_robin } = body;
+
+  if (!team_member_id || typeof team_member_id !== "string") {
+    return badRequest("Missing team_member_id");
+  }
+
+  if (typeof in_round_robin !== "boolean") {
+    return badRequest("in_round_robin must be a boolean");
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("team_memberships")
+    .update({ in_round_robin })
+    .eq("team_id", teamId)
+    .eq("team_member_id", team_member_id)
+    .select("id, in_round_robin")
+    .single();
+
+  if (error) {
+    return serverError("Failed to update round-robin setting.", error, "Team members PATCH");
+  }
+
+  return NextResponse.json(data);
 }
 
 /**

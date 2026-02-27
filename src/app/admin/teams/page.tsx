@@ -41,6 +41,7 @@ interface TeamMember {
   email: string;
   role: string;
   is_active: boolean;
+  in_round_robin: boolean;
   avatar_url: string | null;
   connection_status: "connected" | "revoked" | "service_account";
 }
@@ -110,6 +111,12 @@ export default function AdminTeamsPage() {
   const [reauthLoading, setReauthLoading] = useState<string | null>(null);
   const [reauthLink, setReauthLink] = useState<{ memberId: string; url: string } | null>(null);
   const [copiedReauth, setCopiedReauth] = useState<string | null>(null);
+
+  // Copy booking link state
+  const [copiedTeamLink, setCopiedTeamLink] = useState<string | null>(null);
+
+  // Round-robin toggle loading
+  const [roundRobinLoading, setRoundRobinLoading] = useState<string | null>(null);
 
   // Inline event type rename state
   const [editingEventTypeId, setEditingEventTypeId] = useState<string | null>(null);
@@ -437,6 +444,35 @@ export default function AdminTeamsPage() {
     navigator.clipboard.writeText(url);
     setCopiedReauth(memberId);
     setTimeout(() => setCopiedReauth(null), 2000);
+  };
+
+  // Copy team booking link
+  const copyTeamLink = (teamSlug: string, teamId: string) => {
+    const siteUrl = window.location.origin;
+    navigator.clipboard.writeText(`${siteUrl}/book/${teamSlug}`);
+    setCopiedTeamLink(teamId);
+    setTimeout(() => setCopiedTeamLink(null), 2000);
+  };
+
+  // Toggle round-robin for a member in a team
+  const handleToggleRoundRobin = async (teamId: string, memberId: string, currentValue: boolean) => {
+    setRoundRobinLoading(memberId);
+    try {
+      const res = await fetch(`/api/admin/teams/${teamId}/members?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_member_id: memberId, in_round_robin: !currentValue }),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      // Update local state
+      setTeamMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, in_round_robin: !currentValue } : m))
+      );
+    } catch {
+      setError("Failed to update round-robin setting.");
+    } finally {
+      setRoundRobinLoading(null);
+    }
   };
 
   // Add event type to team via join table
@@ -812,34 +848,48 @@ export default function AdminTeamsPage() {
                 }`}
               >
                 {/* Team card header */}
-                <button
-                  onClick={() => expandTeam(team)}
-                  className="w-full flex items-center gap-3 px-5 sm:px-6 py-4 sm:py-5 text-left hover:bg-gray-50/50 transition-colors"
-                >
-                  <div className="w-9 h-9 bg-indigo-50 rounded-lg grid place-items-center flex-shrink-0">
-                    <Users className="w-4 h-4 text-indigo-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-semibold text-gray-900">{team.name}</h3>
-                      {!team.is_active && (
-                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
-                          Inactive
-                        </span>
-                      )}
+                <div className="flex items-center">
+                  <button
+                    onClick={() => expandTeam(team)}
+                    className="flex-1 flex items-center gap-3 px-5 sm:px-6 py-4 sm:py-5 text-left hover:bg-gray-50/50 transition-colors"
+                  >
+                    <div className="w-9 h-9 bg-indigo-50 rounded-lg grid place-items-center flex-shrink-0">
+                      <Users className="w-4 h-4 text-indigo-500" />
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-gray-400 mt-0.5">
-                      <span className="font-mono text-xs">/{team.slug}</span>
-                      <span>{team.member_count} member{team.member_count !== 1 ? "s" : ""}</span>
-                      <span>{team.event_type_count} event type{team.event_type_count !== 1 ? "s" : ""}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900">{team.name}</h3>
+                        {!team.is_active && (
+                          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-gray-400 mt-0.5">
+                        <span className="font-mono text-xs">/{team.slug}</span>
+                        <span>{team.member_count} member{team.member_count !== 1 ? "s" : ""}</span>
+                        <span>{team.event_type_count} event type{team.event_type_count !== 1 ? "s" : ""}</span>
+                      </div>
                     </div>
-                  </div>
-                  {expandedTeamId === team.id ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                  )}
-                </button>
+                    {expandedTeamId === team.id ? (
+                      <ChevronDown className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    )}
+                  </button>
+                  {/* Copy booking link */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); copyTeamLink(team.slug, team.id); }}
+                    className="flex-shrink-0 mr-4 sm:mr-5 p-2 rounded-lg hover:bg-indigo-50 transition-colors group"
+                    title={`Copy booking link: /book/${team.slug}`}
+                  >
+                    {copiedTeamLink === team.id ? (
+                      <Check className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-4 h-4 text-gray-400 group-hover:text-indigo-500" />
+                    )}
+                  </button>
+                </div>
 
                 {/* Expanded detail panel */}
                 {expandedTeamId === team.id && (
@@ -956,6 +1006,28 @@ export default function AdminTeamsPage() {
                                     <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
                                       {m.role}
                                     </span>
+                                    {/* Round-robin toggle */}
+                                    <button
+                                      onClick={() => handleToggleRoundRobin(team.id, m.id, m.in_round_robin)}
+                                      disabled={roundRobinLoading === m.id}
+                                      className="flex items-center gap-1.5 flex-shrink-0"
+                                      title={m.in_round_robin ? "In round-robin — click to exclude" : "Excluded from round-robin — click to include"}
+                                    >
+                                      <div
+                                        className={`relative w-8 h-[18px] rounded-full transition-colors ${
+                                          m.in_round_robin ? "bg-indigo-500" : "bg-gray-300"
+                                        } ${roundRobinLoading === m.id ? "opacity-50" : ""}`}
+                                      >
+                                        <div
+                                          className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${
+                                            m.in_round_robin ? "translate-x-[16px]" : "translate-x-[2px]"
+                                          }`}
+                                        />
+                                      </div>
+                                      <span className="text-[10px] text-gray-400 hidden sm:inline">
+                                        {m.in_round_robin ? "RR" : "Off"}
+                                      </span>
+                                    </button>
                                     {/* Re-auth button for non-connected members */}
                                     {m.connection_status !== "connected" && (
                                       <button
