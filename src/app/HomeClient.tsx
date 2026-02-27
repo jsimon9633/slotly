@@ -168,12 +168,12 @@ export default function HomeClient({ eventTypes, teamMembers, settings, teams }:
 
                     {/* Round-robin members */}
                     {team.member_names && team.member_names.length > 0 && (
-                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100/60">
-                        <span className="text-[11px] text-gray-400">Round-robin:</span>
+                      <div className="flex items-center gap-2.5 flex-wrap mt-3 pt-3 border-t border-gray-100/60">
+                        <span className="text-[11px] text-gray-400">Round-robin across</span>
                         {team.member_names.map((name, mi) => (
                           <span
                             key={mi}
-                            className="inline-flex items-center gap-1 bg-gray-50 text-gray-500 text-[11px] px-2 py-0.5 rounded-full"
+                            className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-[11px] px-2.5 py-0.5 rounded-full"
                           >
                             <span className="text-xs">{getEmojiForName(name, mi)}</span>
                             {name}

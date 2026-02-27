@@ -13,6 +13,21 @@ import Link from "next/link";
 
 export const revalidate = 60;
 
+const NAME_EMOJIS: Record<string, string> = {
+  alberto: "\u{1F468}\u{200D}\u{1F4BC}",
+  jason: "\u{1F468}\u{200D}\u{1F4BB}",
+  sarah: "\u{1F469}\u{200D}\u{1F4BC}",
+  jessica: "\u{1F469}\u{200D}\u{1F4BB}",
+  michael: "\u{1F9D1}\u{200D}\u{1F4BC}",
+  david: "\u{1F468}\u{200D}\u{1F3A8}",
+  emily: "\u{1F469}\u{200D}\u{1F3A8}",
+  chris: "\u{1F9D1}\u{200D}\u{1F4BB}",
+  alex: "\u{1F9D1}\u{200D}\u{1F52C}",
+  sam: "\u{1F9D1}\u{200D}\u{1F680}",
+  james: "\u{1F468}\u{200D}\u{1F4BC}",
+};
+const FALLBACK_EMOJIS = ["\u{1F464}", "\u{1F9D1}", "\u{1F468}", "\u{1F469}"];
+
 const DEFAULT_SETTINGS: SiteSettings = {
   company_name: "Slotly",
   logo_url: null,
@@ -112,17 +127,16 @@ export default async function BookSlugPage({ params }: PageProps) {
           {/* Team members in round-robin */}
           {roundRobinMembers.length > 0 && (
             <div className="mt-8 pt-6 border-t border-gray-100">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                Your meeting will be with
-              </p>
-              <div className="flex flex-wrap gap-3">
-                {roundRobinMembers.map((m) => (
-                  <div key={m.id} className="flex items-center gap-2 bg-white rounded-full border border-gray-100 pl-1 pr-3 py-1">
-                    <div className="w-6 h-6 bg-indigo-100 rounded-full grid place-items-center text-[10px] font-bold text-indigo-600 flex-shrink-0">
-                      {m.name.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-sm text-gray-700">{m.name}</span>
-                  </div>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="text-[11px] text-gray-400">Round-robin across</span>
+                {roundRobinMembers.map((m, i) => (
+                  <span
+                    key={m.id}
+                    className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-[11px] px-2.5 py-0.5 rounded-full"
+                  >
+                    <span className="text-xs">{NAME_EMOJIS[m.name.toLowerCase()] || FALLBACK_EMOJIS[i % FALLBACK_EMOJIS.length]}</span>
+                    {m.name}
+                  </span>
                 ))}
               </div>
             </div>
