@@ -18,6 +18,8 @@ import {
   Save,
   AlertTriangle,
   Pencil,
+  RefreshCw,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -39,6 +41,8 @@ interface TeamMember {
   email: string;
   role: string;
   is_active: boolean;
+  avatar_url: string | null;
+  connection_status: "connected" | "revoked" | "service_account";
 }
 
 interface EventTypeData {
@@ -101,6 +105,11 @@ export default function AdminTeamsPage() {
 
   // Action state
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Re-auth state
+  const [reauthLoading, setReauthLoading] = useState<string | null>(null);
+  const [reauthLink, setReauthLink] = useState<{ memberId: string; url: string } | null>(null);
+  const [copiedReauth, setCopiedReauth] = useState<string | null>(null);
 
   // Inline event type rename state
   const [editingEventTypeId, setEditingEventTypeId] = useState<string | null>(null);
@@ -399,6 +408,35 @@ export default function AdminTeamsPage() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  // Generate re-auth link for a member
+  const handleGenerateReauth = async (memberId: string) => {
+    setReauthLoading(memberId);
+    setReauthLink(null);
+    try {
+      const res = await fetch(`/api/auth/status?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.reauth_url) {
+        setReauthLink({ memberId, url: data.reauth_url });
+      } else {
+        setError(data.error || "Failed to generate re-auth link.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setReauthLoading(null);
+    }
+  };
+
+  const copyReauthLink = (memberId: string, url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedReauth(memberId);
+    setTimeout(() => setCopiedReauth(null), 2000);
   };
 
   // Add event type to team via join table
@@ -878,32 +916,93 @@ export default function AdminTeamsPage() {
                           ) : (
                             <div className="space-y-2">
                               {teamMembers.map((m) => (
-                                <div
-                                  key={m.id}
-                                  className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5"
-                                >
-                                  <div className="w-7 h-7 bg-indigo-100 rounded-full grid place-items-center text-xs font-bold text-indigo-600 flex-shrink-0">
-                                    {m.name.charAt(0).toUpperCase()}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-sm font-medium text-gray-900">{m.name}</span>
-                                    <span className="text-xs text-gray-400 ml-2">{m.email}</span>
-                                  </div>
-                                  <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
-                                    {m.role}
-                                  </span>
-                                  <button
-                                    onClick={() => handleRemoveMember(team.id, m.id)}
-                                    disabled={actionLoading === `rm-${m.id}`}
-                                    className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
-                                    title="Remove from team"
-                                  >
-                                    {actionLoading === `rm-${m.id}` ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="w-4 h-4" />
+                                <div key={m.id} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                                  <div className="flex items-center gap-3">
+                                    {/* Avatar or initial */}
+                                    <div className="relative flex-shrink-0">
+                                      {m.avatar_url ? (
+                                        <img
+                                          src={m.avatar_url}
+                                          alt=""
+                                          className="w-7 h-7 rounded-full"
+                                        />
+                                      ) : (
+                                        <div className="w-7 h-7 bg-indigo-100 rounded-full grid place-items-center text-xs font-bold text-indigo-600">
+                                          {m.name.charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                      {/* Connection status dot */}
+                                      <div
+                                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-gray-50 ${
+                                          m.connection_status === "connected"
+                                            ? "bg-emerald-400"
+                                            : m.connection_status === "revoked"
+                                            ? "bg-red-400"
+                                            : "bg-amber-400"
+                                        }`}
+                                        title={
+                                          m.connection_status === "connected"
+                                            ? "Calendar connected via OAuth"
+                                            : m.connection_status === "revoked"
+                                            ? "Calendar disconnected — needs re-auth"
+                                            : "Using service account (not OAuth)"
+                                        }
+                                      />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-sm font-medium text-gray-900">{m.name}</span>
+                                      <span className="text-xs text-gray-400 ml-2">{m.email}</span>
+                                    </div>
+                                    <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
+                                      {m.role}
+                                    </span>
+                                    {/* Re-auth button for non-connected members */}
+                                    {m.connection_status !== "connected" && (
+                                      <button
+                                        onClick={() => handleGenerateReauth(m.id)}
+                                        disabled={reauthLoading === m.id}
+                                        className="text-indigo-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+                                        title="Generate OAuth re-auth link"
+                                      >
+                                        {reauthLoading === m.id ? (
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <RefreshCw className="w-4 h-4" />
+                                        )}
+                                      </button>
                                     )}
-                                  </button>
+                                    <button
+                                      onClick={() => handleRemoveMember(team.id, m.id)}
+                                      disabled={actionLoading === `rm-${m.id}`}
+                                      className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                                      title="Remove from team"
+                                    >
+                                      {actionLoading === `rm-${m.id}` ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                  </div>
+                                  {/* Re-auth link display */}
+                                  {reauthLink?.memberId === m.id && (
+                                    <div className="mt-2 flex items-center gap-2 animate-fade-in">
+                                      <code className="flex-1 text-xs bg-white border border-gray-200 rounded px-2 py-1.5 text-indigo-600 break-all">
+                                        {reauthLink.url}
+                                      </code>
+                                      <button
+                                        onClick={() => copyReauthLink(m.id, reauthLink.url)}
+                                        className="flex-shrink-0 p-1.5 rounded hover:bg-gray-100 transition-colors"
+                                        title="Copy link"
+                                      >
+                                        {copiedReauth === m.id ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5 text-gray-400" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>

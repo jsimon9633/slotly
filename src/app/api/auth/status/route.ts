@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { unauthorized } from "@/lib/api-errors";
+import { unauthorized, badRequest, notFound, serverError } from "@/lib/api-errors";
+import { createReauthToken } from "@/lib/google-oauth";
+import { sendSlackReauthNotification } from "@/lib/slack-notify";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-admin-2024";
 
@@ -43,4 +45,64 @@ export async function GET(req: NextRequest) {
   }));
 
   return NextResponse.json(statuses);
+}
+
+/**
+ * POST /api/auth/status — Generate a re-auth link for an existing team member.
+ * Admin-only. Optionally sends a Slack DM.
+ *
+ * Body: { memberId: string, sendSlack?: boolean }
+ */
+export async function POST(req: NextRequest) {
+  const token = req.nextUrl.searchParams.get("token");
+  const auth = req.headers.get("authorization");
+  if (token !== ADMIN_TOKEN && auth !== `Bearer ${ADMIN_TOKEN}`) {
+    return unauthorized();
+  }
+
+  let body: { memberId?: string; sendSlack?: boolean };
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest("Invalid request body");
+  }
+
+  const { memberId, sendSlack } = body;
+  if (!memberId || typeof memberId !== "string") {
+    return badRequest("Missing memberId");
+  }
+
+  const { data: member } = await supabaseAdmin
+    .from("team_members")
+    .select("id, name, email, slack_user_id")
+    .eq("id", memberId)
+    .single();
+
+  if (!member) {
+    return notFound("Team member");
+  }
+
+  try {
+    const reauthToken = await createReauthToken(member.id);
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+    const reauthUrl = `${siteUrl}/api/auth/google?reauth=${reauthToken}`;
+
+    // Optionally send Slack DM
+    let slackSent = false;
+    if (sendSlack) {
+      slackSent = await sendSlackReauthNotification({
+        teamMemberName: member.name,
+        teamMemberEmail: member.email,
+        reauthUrl,
+        slackUserId: member.slack_user_id || undefined,
+      });
+    }
+
+    return NextResponse.json({
+      reauth_url: reauthUrl,
+      slack_sent: slackSent,
+    });
+  } catch (err) {
+    return serverError("Failed to generate re-auth link.", err, "Auth status POST");
+  }
 }
