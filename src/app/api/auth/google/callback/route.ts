@@ -6,9 +6,8 @@ import {
   getGoogleUserProfile,
   encryptToken,
   validateReauthToken,
+  getRedirectUri,
 } from "@/lib/google-oauth";
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "";
 
 /**
  * GET /api/auth/google/callback — Google OAuth callback
@@ -16,6 +15,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "";
  * Handles both new member onboarding and re-auth flows.
  */
 export async function GET(request: NextRequest) {
+  const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "")) || new URL(request.url).origin;
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const stateParam = searchParams.get("state");
@@ -37,8 +37,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Exchange code for tokens
-    const tokens = await exchangeCodeForTokens(code);
+    // Exchange code for tokens — redirect_uri must match the one used in the initial request
+    const redirectUri = getRedirectUri(request.url);
+    const tokens = await exchangeCodeForTokens(code, redirectUri);
     if (!tokens.refresh_token) {
       return NextResponse.redirect(`${SITE_URL}/join?error=no_refresh_token`);
     }

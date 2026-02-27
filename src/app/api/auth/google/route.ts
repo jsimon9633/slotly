@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createOAuthState, getGoogleOAuthUrl } from "@/lib/google-oauth";
+import { createOAuthState, getGoogleOAuthUrl, getRedirectUri } from "@/lib/google-oauth";
 import { supabaseAdmin } from "@/lib/supabase";
 import { badRequest } from "@/lib/api-errors";
 
@@ -35,8 +35,9 @@ export async function GET(request: NextRequest) {
       return badRequest("This invite link is invalid or has expired.");
     }
 
+    const redirectUri = getRedirectUri(request.url);
     const state = createOAuthState({ type: "join", invite: inviteToken });
-    return NextResponse.redirect(getGoogleOAuthUrl(state));
+    return NextResponse.redirect(getGoogleOAuthUrl(state, redirectUri));
   }
 
   // Validate reauth token if provided
@@ -55,8 +56,9 @@ export async function GET(request: NextRequest) {
       return badRequest("This reconnect link is invalid or has expired.");
     }
 
+    const redirectUri = getRedirectUri(request.url);
     const state = createOAuthState({ type: "reauth", reauth: reauthToken, memberId: reauth.team_member_id });
-    return NextResponse.redirect(getGoogleOAuthUrl(state));
+    return NextResponse.redirect(getGoogleOAuthUrl(state, redirectUri));
   }
 
   return badRequest("Invalid request");

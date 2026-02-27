@@ -6,10 +6,29 @@ import { supabaseAdmin } from "./supabase";
 
 const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || "";
 const OAUTH_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET || "";
-const OAUTH_REDIRECT_URI =
-  process.env.GOOGLE_OAUTH_REDIRECT_URI ||
-  `${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/auth/google/callback`;
 const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || "";
+
+/**
+ * Compute the OAuth redirect URI. Prefers env var overrides, falls back
+ * to deriving from the incoming request URL (works on any domain including
+ * Netlify deploy previews).
+ */
+export function getRedirectUri(requestUrl?: string): string {
+  if (process.env.GOOGLE_OAUTH_REDIRECT_URI) {
+    return process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  }
+  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  if (base) {
+    return `${base}/api/auth/google/callback`;
+  }
+  if (requestUrl) {
+    const origin = new URL(requestUrl).origin;
+    return `${origin}/api/auth/google/callback`;
+  }
+  throw new Error(
+    "Cannot determine OAuth redirect URI: set GOOGLE_OAUTH_REDIRECT_URI or NEXT_PUBLIC_SITE_URL"
+  );
+}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar",
@@ -79,10 +98,10 @@ export function verifyOAuthState(state: string): Record<string, string> | null {
 
 // ── OAuth URL ──
 
-export function getGoogleOAuthUrl(state: string): string {
+export function getGoogleOAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: OAUTH_CLIENT_ID,
-    redirect_uri: OAUTH_REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: SCOPES.join(" "),
     access_type: "offline",
@@ -94,7 +113,7 @@ export function getGoogleOAuthUrl(state: string): string {
 
 // ── Token Exchange ──
 
-export async function exchangeCodeForTokens(code: string): Promise<{
+export async function exchangeCodeForTokens(code: string, redirectUri: string): Promise<{
   access_token: string;
   refresh_token: string;
   expires_in: number;
@@ -107,7 +126,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
       code,
       client_id: OAUTH_CLIENT_ID,
       client_secret: OAUTH_CLIENT_SECRET,
-      redirect_uri: OAUTH_REDIRECT_URI,
+      redirect_uri: redirectUri,
       grant_type: "authorization_code",
     }),
   });
