@@ -1,6 +1,6 @@
 # Slotly — Project Knowledge Base
 
-> **Last updated:** 2026-02-27 (Session 2)
+> **Last updated:** 2026-02-27 (Session 3)
 > **Owner:** Alberto (asimon@masterworks.com)
 > **Repo:** https://github.com/jsimon9633/slotly
 > **Live URL:** https://sparkling-tarsier-bc26ef.netlify.app/
@@ -142,7 +142,8 @@ src/
     └── migrations/
         ├── 20260219_add_teams.sql                # Teams, memberships, availability rules
         ├── 20260219_add_noshow_and_smart_scheduling.sql # No-show scoring + smart scheduling columns
-        └── 20260226_add_google_oauth.sql         # OAuth columns on team_members, reauth_tokens table, invite_tokens table
+        ├── 20260226_add_google_oauth.sql         # OAuth columns on team_members, reauth_tokens table, invite_tokens table
+        └── 20260227_add_round_robin_toggle.sql   # in_round_robin boolean on team_memberships (default true)
 ```
 
 ---
@@ -156,7 +157,7 @@ src/
 | `bookings` | All bookings (invitee info, start/end time, status, manage_token, no_show_score, risk_tier, outcome, custom_answers, reminder_sent_at) |
 | `availability_rules` | Per-member working hours by day of week |
 | `teams` | Team groupings (name, slug, description) |
-| `team_memberships` | Many-to-many: members ↔ teams with roles (admin/member) |
+| `team_memberships` | Many-to-many: members ↔ teams with roles (admin/member), `in_round_robin` toggle per membership |
 | `team_event_types` | Many-to-many: event types ↔ teams (allows one event type in multiple teams) |
 | `webhooks` | Webhook endpoints (URL, secret, subscribed events) |
 | `webhook_logs` | Delivery logs (status code, response, success) |
@@ -179,7 +180,8 @@ src/
 - **Booking form** — name, email, international phone picker with country flags, topic suggestion chips, notes field, custom booking questions
 - **Event type description** — displayed on booking page below title (text with line break preservation)
 - **Add to Calendar** — Google Calendar, Outlook, and iCal (.ics download) buttons on confirmation screen
-- **Round-robin assignment** — books the team member who hasn't been booked in the longest time
+- **Round-robin assignment** — books the team member who hasn't been booked in the longest time; per-team `in_round_robin` toggle controls which members participate
+- **Round-robin member display** — homepage team cards and `/book/[teamSlug]` pages show "Round-robin across" with emoji pills for active members (dynamically queries `team_memberships.in_round_robin`)
 - **Real-time availability** — checks Google Calendar free/busy + availability rules + buffer times
 - **Timezone support** — auto-detects user timezone, searchable timezone picker
 - **Google Meet auto-creation** — every booking creates a Google Meet link (via `conferenceData` on Calendar event), included in confirmation emails with join button + dial-in details
@@ -215,7 +217,7 @@ src/
 - **Booking questions** — add custom text/dropdown/checkbox questions per event type
 - **Buffer configuration** — before/after buffer minutes per event type
 - **Booking limits** — min notice hours, max daily bookings, max advance days
-- **Team management** — create teams, add/remove members, set roles (admin/member)
+- **Team management** — create teams, add/remove members, set roles (admin/member), per-member round-robin toggle (include/exclude from scheduling), copy booking link button on team cards
 - **Team invites** — generate invite links, approve/reject join requests
 - **Analytics dashboard** — booking volume timeline, event type breakdown, team utilization, peak days/hours, cancellation rates (7/30/90 day views)
 - **Booking outcomes** — mark bookings as completed/no-show for data collection
@@ -287,9 +289,10 @@ src/
 
 ### Round-Robin Algorithm
 1. Query `team_members` sorted by `last_booked_at ASC` — longest-idle member goes next
-2. Check that member's Google Calendar free/busy + availability rules + buffer times
-3. If available: create Google Calendar event, create booking, update `last_booked_at`
-4. If not: try next member in the round-robin order
+2. **Filter by `in_round_robin`** — only members with `team_memberships.in_round_robin = true` participate (admin can toggle per member per team)
+3. Check that member's Google Calendar free/busy + availability rules + buffer times
+4. If available: create Google Calendar event, create booking, update `last_booked_at`
+5. If not: try next member in the round-robin order
 
 ### Team Member Onboarding Flow (OAuth)
 ```
@@ -416,9 +419,9 @@ All public pages and APIs (team landing, booking page, `/api/availability`, `/ap
 
 **Core functions:**
 
-- `getNextTeamMember(teamId?)` — Returns the single next member in round-robin order. Queries `team_members` ordered by `last_booked_at ASC` (longest-idle first). When `teamId` is provided, joins through `team_memberships` to scope the pool. Returns `null` if no active members exist. Now also returns `google_oauth_refresh_token`.
+- `getNextTeamMember(teamId?)` — Returns the single next member in round-robin order. Queries `team_members` ordered by `last_booked_at ASC` (longest-idle first). When `teamId` is provided, joins through `team_memberships` to scope the pool and filters by `in_round_robin = true`. Returns `null` if no active members exist. Also returns `google_oauth_refresh_token`.
 
-- `getAllTeamMembers(teamId?)` — Same scoping logic but returns all active members (used by `getCombinedAvailability` to check every member's calendar in parallel). Now also returns `google_oauth_refresh_token`.
+- `getAllTeamMembers(teamId?)` — Same scoping logic but returns all active members with `in_round_robin = true` (used by `getCombinedAvailability` to check every member's calendar in parallel). Also returns `google_oauth_refresh_token`.
 
 - `getAvailableSlots(memberId, calendarId, dateStr, duration, timezone, constraints, oauthRefreshToken?)` — The main slot generator for a single member on a single date. Passes OAuth token to `getFreeBusy()` when available. Algorithm:
   1. Looks up the member's `availability_rules` for the day-of-week
@@ -566,8 +569,8 @@ The OAuth integration requires these Google Cloud Console settings:
 
 ## Reference Docs (in `docs/` folder)
 
-- **Slotly Build Timeline v4.0.docx** — full development history across all build sessions
-- **Slotly Release Notes v1.4.docx** — release notes for shipped features
+- **Slotly Build Timeline v5.0.docx** — full development history across all build sessions
+- **Slotly Release Notes v1.5.docx** — release notes for shipped features
 - **Calendly vs Slotly - UX Audit.docx** — feature comparison and implementation roadmap
 - **Slotly Enrichment Services to Explore.docx** — AI Meeting Prep enrichment pipeline research
 - **slotly-onboarding-flow.mermaid** — team member onboarding flow diagram
