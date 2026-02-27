@@ -98,6 +98,16 @@ export function verifyOAuthState(state: string): Record<string, string> | null {
 
 // ── OAuth URL ──
 
+/**
+ * Build Google OAuth consent URL.
+ *
+ * The `hd` (hosted domain) parameter restricts the account picker to only
+ * show accounts from the specified Workspace domain. This prevents users
+ * from accidentally signing in with a personal Gmail, which would hit
+ * Google's "Access blocked" error for Internal apps.
+ *
+ * Set via GOOGLE_OAUTH_HD env var (e.g. "masterworks.com").
+ */
 export function getGoogleOAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: OAUTH_CLIENT_ID,
@@ -108,6 +118,13 @@ export function getGoogleOAuthUrl(state: string, redirectUri: string): string {
     prompt: "consent",
     state,
   });
+
+  // Restrict account picker to the Workspace domain
+  const hd = process.env.GOOGLE_OAUTH_HD;
+  if (hd) {
+    params.set("hd", hd);
+  }
+
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 

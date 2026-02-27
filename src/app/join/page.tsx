@@ -130,9 +130,20 @@ function JoinPageInner() {
             <p className="text-base text-gray-400 max-w-[380px] mx-auto">
               {invalidReason}
             </p>
-            <p className="text-sm text-gray-300 mt-4 max-w-[380px] mx-auto">
-              Please ask your admin for a new invite link and try again.
-            </p>
+            {errorCode === "consent_denied" && inviteToken && (
+              <a
+                href={`/api/auth/google?invite=${encodeURIComponent(inviteToken)}`}
+                className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Try again with a different account
+              </a>
+            )}
+            {errorCode !== "consent_denied" && (
+              <p className="text-sm text-gray-300 mt-4 max-w-[380px] mx-auto">
+                Please ask your admin for a new invite link and try again.
+              </p>
+            )}
           </div>
         )}
 
@@ -174,8 +185,9 @@ function JoinPageInner() {
             </div>
 
             <p className="text-xs text-gray-300 mt-4 max-w-[400px] mx-auto">
-              We only access your calendar to check availability and create booking events.
-              You can disconnect anytime.
+              Make sure to sign in with your <strong className="text-gray-400">work Google account</strong>,
+              not a personal Gmail. We only access your calendar to check availability and
+              create booking events. You can disconnect anytime.
             </p>
           </div>
         )}
@@ -246,7 +258,7 @@ function JoinPageInner() {
 function getErrorMessage(code: string): string {
   switch (code) {
     case "consent_denied":
-      return "You declined the Google Calendar permission. We need calendar access to check your availability and create booking events.";
+      return "Google blocked the connection. This usually means you signed in with a personal Gmail instead of your work Google Workspace account. Please try again with your work email.";
     case "missing_params":
       return "The OAuth callback was missing required parameters. Please try again.";
     case "invalid_state":
