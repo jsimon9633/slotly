@@ -1,4 +1,5 @@
 import sgMail from "@sendgrid/mail";
+import { supabaseAdmin } from "@/lib/supabase";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.EMAIL_FROM || "help@masterworks.com";
@@ -10,6 +11,100 @@ const SITE_URL =
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
+}
+
+// ─── Custom Template Support ─────────────────────────────
+
+type TemplateType = "booking_confirmation" | "team_member_alert" | "cancellation" | "reschedule" | "reminder";
+
+interface CustomTemplate {
+  subject: string | null;
+  body_html: string;
+}
+
+// 60-second in-memory cache for custom templates
+const templateCache: Map<TemplateType, { data: CustomTemplate | null; fetchedAt: number }> = new Map();
+const CACHE_TTL_MS = 60_000;
+
+async function getCustomTemplate(templateType: TemplateType): Promise<CustomTemplate | null> {
+  const cached = templateCache.get(templateType);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    const { data } = await supabaseAdmin
+      .from("email_templates")
+      .select("subject, body_html")
+      .eq("template_type", templateType)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    const result = data ? { subject: data.subject, body_html: data.body_html } : null;
+    templateCache.set(templateType, { data: result, fetchedAt: Date.now() });
+    return result;
+  } catch {
+    // On DB error, return null (fall back to default)
+    return null;
+  }
+}
+
+/**
+ * Replace {{variable}} placeholders in a custom template with actual data.
+ */
+function renderTemplateVariables(
+  html: string,
+  vars: Record<string, string>
+): string {
+  let result = html;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
+  }
+  return result;
+}
+
+/**
+ * Build a standard variable map from booking email data.
+ */
+function buildVariableMap(data: {
+  inviteeName?: string;
+  inviteeEmail?: string;
+  teamMemberName?: string;
+  teamMemberEmail?: string;
+  eventTitle?: string;
+  durationMinutes?: number;
+  startTime?: string;
+  endTime?: string;
+  timezone?: string;
+  notes?: string | null;
+  manageToken?: string;
+  meetLink?: string;
+}): Record<string, string> {
+  const vars: Record<string, string> = {};
+  if (data.inviteeName) vars.name = data.inviteeName;
+  if (data.inviteeEmail) vars.email = data.inviteeEmail;
+  if (data.teamMemberName) vars.host_name = data.teamMemberName;
+  if (data.teamMemberEmail) vars.host_email = data.teamMemberEmail;
+  if (data.eventTitle) vars.event_title = data.eventTitle;
+  if (data.durationMinutes) vars.duration = `${data.durationMinutes} minutes`;
+  if (data.startTime && data.timezone) {
+    vars.start_time = formatDateTime(data.startTime, data.timezone);
+    vars.date = new Date(data.startTime).toLocaleDateString("en-US", {
+      weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: data.timezone,
+    });
+    vars.time = new Date(data.startTime).toLocaleTimeString("en-US", {
+      hour: "numeric", minute: "2-digit", timeZone: data.timezone, timeZoneName: "short",
+    });
+  }
+  if (data.meetLink) vars.meet_link = data.meetLink;
+  if (data.manageToken) {
+    vars.manage_link = manageUrl(data.manageToken);
+    vars.reschedule_link = rescheduleUrl(data.manageToken);
+    vars.cancel_link = cancelUrl(data.manageToken);
+  }
+  if (data.notes) vars.notes = data.notes;
+  return vars;
 }
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -228,7 +323,18 @@ function bookingDetailsHtml(data: {
 
 // ─── Booking Confirmation (to the person who booked) ─────
 
-function buildConfirmationEmail(data: BookingEmailData): { subject: string; html: string } {
+async function buildConfirmationEmail(data: BookingEmailData): Promise<{ subject: string; html: string }> {
+  // Check for custom template first
+  const custom = await getCustomTemplate("booking_confirmation");
+  if (custom) {
+    const vars = buildVariableMap(data);
+    const renderedBody = renderTemplateVariables(custom.body_html, vars);
+    const subject = custom.subject
+      ? renderTemplateVariables(custom.subject, vars)
+      : `Confirmed: ${data.eventTitle} on ${new Date(data.startTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: data.timezone })}`;
+    return { subject, html: emailWrapper(renderedBody) };
+  }
+
   const subject = `Confirmed: ${data.eventTitle} on ${new Date(data.startTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: data.timezone })}`;
 
   const html = emailWrapper(`
@@ -262,7 +368,17 @@ function buildConfirmationEmail(data: BookingEmailData): { subject: string; html
 
 // ─── New Booking Alert (to the team member) ──────────────
 
-function buildTeamMemberAlertEmail(data: BookingEmailData): { subject: string; html: string } {
+async function buildTeamMemberAlertEmail(data: BookingEmailData): Promise<{ subject: string; html: string }> {
+  const custom = await getCustomTemplate("team_member_alert");
+  if (custom) {
+    const vars = buildVariableMap(data);
+    const renderedBody = renderTemplateVariables(custom.body_html, vars);
+    const subject = custom.subject
+      ? renderTemplateVariables(custom.subject, vars)
+      : `New booking: ${data.eventTitle} with ${data.inviteeName}`;
+    return { subject, html: emailWrapper(renderedBody) };
+  }
+
   const subject = `New booking: ${data.eventTitle} with ${data.inviteeName}`;
 
   const html = emailWrapper(`
@@ -310,7 +426,30 @@ export interface CancelEmailData {
   cancelledBy: "invitee" | "team";
 }
 
-function buildCancellationEmail(data: CancelEmailData, recipient: "invitee" | "team"): { subject: string; html: string } {
+async function buildCancellationEmail(data: CancelEmailData, recipient: "invitee" | "team"): Promise<{ subject: string; html: string }> {
+  const custom = await getCustomTemplate("cancellation");
+  if (custom) {
+    const vars: Record<string, string> = {
+      ...buildVariableMap({
+        inviteeName: data.inviteeName,
+        inviteeEmail: data.inviteeEmail,
+        teamMemberName: data.teamMemberName,
+        teamMemberEmail: data.teamMemberEmail,
+        eventTitle: data.eventTitle,
+        durationMinutes: data.durationMinutes,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        timezone: data.timezone,
+      }),
+      cancelled_by: data.cancelledBy,
+    };
+    const renderedBody = renderTemplateVariables(custom.body_html, vars);
+    const subject = custom.subject
+      ? renderTemplateVariables(custom.subject, vars)
+      : `Cancelled: ${data.eventTitle} on ${new Date(data.startTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: data.timezone })}`;
+    return { subject, html: emailWrapper(renderedBody) };
+  }
+
   const subject = `Cancelled: ${data.eventTitle} on ${new Date(data.startTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: data.timezone })}`;
 
   const whoLabel = recipient === "invitee"
@@ -359,7 +498,31 @@ export interface RescheduleEmailData {
   manageToken: string;
 }
 
-function buildRescheduleEmail(data: RescheduleEmailData, recipient: "invitee" | "team"): { subject: string; html: string } {
+async function buildRescheduleEmail(data: RescheduleEmailData, recipient: "invitee" | "team"): Promise<{ subject: string; html: string }> {
+  const custom = await getCustomTemplate("reschedule");
+  if (custom) {
+    const vars: Record<string, string> = {
+      ...buildVariableMap({
+        inviteeName: data.inviteeName,
+        inviteeEmail: data.inviteeEmail,
+        teamMemberName: data.teamMemberName,
+        teamMemberEmail: data.teamMemberEmail,
+        eventTitle: data.eventTitle,
+        durationMinutes: data.durationMinutes,
+        startTime: data.newStartTime,
+        endTime: data.newEndTime,
+        timezone: data.timezone,
+        manageToken: data.manageToken,
+      }),
+      old_start_time: formatDateTime(data.oldStartTime, data.timezone),
+    };
+    const renderedBody = renderTemplateVariables(custom.body_html, vars);
+    const subject = custom.subject
+      ? renderTemplateVariables(custom.subject, vars)
+      : `Rescheduled: ${data.eventTitle} → ${new Date(data.newStartTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: data.timezone })}`;
+    return { subject, html: emailWrapper(renderedBody) };
+  }
+
   const newDateStr = formatDateTime(data.newStartTime, data.timezone);
   const subject = `Rescheduled: ${data.eventTitle} → ${new Date(data.newStartTime).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: data.timezone })}`;
 
@@ -423,7 +586,31 @@ export interface ReminderEmailData {
   meetLink?: string;
 }
 
-function buildReminderEmail(data: ReminderEmailData): { subject: string; html: string } {
+async function buildReminderEmail(data: ReminderEmailData): Promise<{ subject: string; html: string }> {
+  const custom = await getCustomTemplate("reminder");
+  if (custom) {
+    const vars = buildVariableMap({
+      inviteeName: data.inviteeName,
+      inviteeEmail: data.inviteeEmail,
+      teamMemberName: data.teamMemberName,
+      eventTitle: data.eventTitle,
+      durationMinutes: data.durationMinutes,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      timezone: data.timezone,
+      manageToken: data.manageToken,
+      meetLink: data.meetLink,
+    });
+    const renderedBody = renderTemplateVariables(custom.body_html, vars);
+    const timeStr = new Date(data.startTime).toLocaleTimeString("en-US", {
+      hour: "numeric", minute: "2-digit", timeZone: data.timezone, timeZoneName: "short",
+    });
+    const subject = custom.subject
+      ? renderTemplateVariables(custom.subject, vars)
+      : `Reminder: ${data.eventTitle} today at ${timeStr}`;
+    return { subject, html: emailWrapper(renderedBody) };
+  }
+
   const timeStr = new Date(data.startTime).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -463,7 +650,7 @@ function buildReminderEmail(data: ReminderEmailData): { subject: string; html: s
  * Send reminder email to invitee (high-risk bookings, 2hrs before).
  */
 export async function sendReminderEmail(data: ReminderEmailData): Promise<boolean> {
-  const { subject, html } = buildReminderEmail(data);
+  const { subject, html } = await buildReminderEmail(data);
   return sendEmail(data.inviteeEmail, subject, html);
 }
 
@@ -494,8 +681,10 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
  * Send booking confirmation to invitee + alert to team member.
  */
 export async function sendBookingEmails(data: BookingEmailData): Promise<void> {
-  const confirmation = buildConfirmationEmail(data);
-  const alert = buildTeamMemberAlertEmail(data);
+  const [confirmation, alert] = await Promise.all([
+    buildConfirmationEmail(data),
+    buildTeamMemberAlertEmail(data),
+  ]);
 
   await Promise.allSettled([
     sendEmail(data.inviteeEmail, confirmation.subject, confirmation.html),
@@ -507,8 +696,10 @@ export async function sendBookingEmails(data: BookingEmailData): Promise<void> {
  * Send cancellation emails to both parties.
  */
 export async function sendCancellationEmails(data: CancelEmailData): Promise<void> {
-  const inviteeEmail = buildCancellationEmail(data, "invitee");
-  const teamEmail = buildCancellationEmail(data, "team");
+  const [inviteeEmail, teamEmail] = await Promise.all([
+    buildCancellationEmail(data, "invitee"),
+    buildCancellationEmail(data, "team"),
+  ]);
 
   await Promise.allSettled([
     sendEmail(data.inviteeEmail, inviteeEmail.subject, inviteeEmail.html),
@@ -520,8 +711,10 @@ export async function sendCancellationEmails(data: CancelEmailData): Promise<voi
  * Send reschedule emails to both parties.
  */
 export async function sendRescheduleEmails(data: RescheduleEmailData): Promise<void> {
-  const inviteeEmail = buildRescheduleEmail(data, "invitee");
-  const teamEmail = buildRescheduleEmail(data, "team");
+  const [inviteeEmail, teamEmail] = await Promise.all([
+    buildRescheduleEmail(data, "invitee"),
+    buildRescheduleEmail(data, "team"),
+  ]);
 
   await Promise.allSettled([
     sendEmail(data.inviteeEmail, inviteeEmail.subject, inviteeEmail.html),
