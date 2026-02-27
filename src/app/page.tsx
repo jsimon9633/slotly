@@ -50,11 +50,14 @@ async function getTeamsWithEventTypes(): Promise<TeamWithEventTypes[]> {
       assignedEtIds.add(link.event_type_id);
     }
 
-    // Build team list with their event types (event types can appear in multiple teams)
-    const result: TeamWithEventTypes[] = allTeams.map((team) => ({
-      ...team,
-      event_types: allEts.filter((et: any) => (teamToEts[team.id] || []).includes(et.id)),
-    }));
+    // Build team list with their event types and round-robin members
+    const result: TeamWithEventTypes[] = await Promise.all(
+      allTeams.map(async (team) => ({
+        ...team,
+        event_types: allEts.filter((et: any) => (teamToEts[team.id] || []).includes(et.id)),
+        member_names: await getTeamRoundRobinMembers(team.id),
+      }))
+    );
 
     // Include unassigned event types — assign them to the first team, or a virtual default
     const unassigned = allEts.filter((et: any) => !assignedEtIds.has(et.id));
@@ -91,6 +94,22 @@ async function getTeamMembers(): Promise<{ id: string; name: string }[]> {
       id: m.id,
       name: m.name.split(" ")[0],
     }));
+  } catch {
+    return [];
+  }
+}
+
+async function getTeamRoundRobinMembers(teamId: string): Promise<string[]> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("team_memberships")
+      .select("team_member_id, in_round_robin, team_members ( name )")
+      .eq("team_id", teamId)
+      .eq("is_active", true);
+    if (!data) return [];
+    return data
+      .filter((m: any) => m.in_round_robin)
+      .map((m: any) => (m.team_members?.name || "").split(" ")[0]);
   } catch {
     return [];
   }

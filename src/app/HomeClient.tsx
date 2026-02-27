@@ -165,6 +165,22 @@ export default function HomeClient({ eventTypes, teamMembers, settings, teams }:
                         <span className="text-sm text-gray-300">No event types yet</span>
                       )}
                     </div>
+
+                    {/* Round-robin members */}
+                    {team.member_names && team.member_names.length > 0 && (
+                      <div className="flex items-center gap-2.5 flex-wrap mt-3 pt-3 border-t border-gray-100/60">
+                        <span className="text-[11px] text-gray-400">Round-robin across</span>
+                        {team.member_names.map((name, mi) => (
+                          <span
+                            key={mi}
+                            className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-[11px] px-2.5 py-0.5 rounded-full"
+                          >
+                            <span className="text-xs">{getEmojiForName(name, mi)}</span>
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </Link>
               );
@@ -203,19 +219,8 @@ export default function HomeClient({ eventTypes, teamMembers, settings, teams }:
       </main>
 
       {/* ── Footer ── */}
-      <footer className="max-w-[880px] mx-auto flex flex-col items-center gap-2 px-4 py-3 sm:py-4 text-[11px] text-gray-500 animate-fade-in" style={{ animationDelay: "0.3s" }}>
-        <div className="flex items-center gap-2.5 flex-wrap justify-center">
-          <span>Round-robin across</span>
-          {teamMembers.map((m, i) => (
-            <span
-              key={m.id}
-              className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-[11px] px-2.5 py-0.5 rounded-full"
-            >
-              <span className="text-xs">{getEmojiForName(m.name, i)}</span>
-              {m.name}
-            </span>
-          ))}
-        </div>
+      <footer className="max-w-[880px] mx-auto flex flex-col items-center gap-2 px-4 py-3 sm:py-4 text-[11px] text-gray-400 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+        <span>Powered by {settings.company_name}</span>
       </footer>
     </div>
   );

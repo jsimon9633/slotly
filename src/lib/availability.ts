@@ -36,12 +36,13 @@ export async function getNextTeamMember(teamId?: string): Promise<{
   const selectFields = "id, name, email, google_calendar_id, google_oauth_refresh_token";
 
   if (teamId) {
-    // Join through team_memberships to scope to team
+    // Join through team_memberships to scope to team (only round-robin participants)
     const { data: memberships, error: mErr } = await supabaseAdmin
       .from("team_memberships")
       .select("team_member_id")
       .eq("team_id", teamId)
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .eq("in_round_robin", true);
 
     if (mErr || !memberships || memberships.length === 0) return null;
 
@@ -84,7 +85,8 @@ export async function getAllTeamMembers(teamId?: string) {
       .from("team_memberships")
       .select("team_member_id")
       .eq("team_id", teamId)
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .eq("in_round_robin", true);
 
     if (!memberships || memberships.length === 0) return [];
 
