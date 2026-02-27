@@ -41,7 +41,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const members = (memberships || []).map((m: any) => ({
       membership_id: m.id,
       role: m.role,
-      in_round_robin: m.in_round_robin,
+      in_round_robin: m.in_round_robin ?? true,
       joined_at: m.joined_at,
       id: m.team_members.id,
       name: m.team_members.name,

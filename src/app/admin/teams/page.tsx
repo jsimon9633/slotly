@@ -457,19 +457,30 @@ export default function AdminTeamsPage() {
   // Toggle round-robin for a member in a team
   const handleToggleRoundRobin = async (teamId: string, memberId: string, currentValue: boolean) => {
     setRoundRobinLoading(memberId);
+    setError(null);
     try {
       const res = await fetch(`/api/admin/teams/${teamId}/members?token=${encodeURIComponent(token)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ team_member_id: memberId, in_round_robin: !currentValue }),
       });
-      if (!res.ok) throw new Error("Failed to update");
-      // Update local state
-      setTeamMembers((prev) =>
-        prev.map((m) => (m.id === memberId ? { ...m, in_round_robin: !currentValue } : m))
-      );
-    } catch {
-      setError("Failed to update round-robin setting.");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to update (${res.status})`);
+      }
+      // Re-fetch members to confirm the DB change (not just optimistic)
+      const membersRes = await fetch(`/api/admin/teams/${teamId}/members?token=${encodeURIComponent(token)}`);
+      if (membersRes.ok) {
+        const members = await membersRes.json();
+        if (Array.isArray(members)) setTeamMembers(members);
+      } else {
+        // Fallback to optimistic update if re-fetch fails
+        setTeamMembers((prev) =>
+          prev.map((m) => (m.id === memberId ? { ...m, in_round_robin: !currentValue } : m))
+        );
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to update round-robin setting.");
     } finally {
       setRoundRobinLoading(null);
     }
@@ -1008,7 +1019,7 @@ export default function AdminTeamsPage() {
                                     </span>
                                     {/* Round-robin toggle */}
                                     <button
-                                      onClick={() => handleToggleRoundRobin(team.id, m.id, m.in_round_robin)}
+                                      onClick={(e) => { e.stopPropagation(); handleToggleRoundRobin(team.id, m.id, m.in_round_robin); }}
                                       disabled={roundRobinLoading === m.id}
                                       className="flex items-center gap-1.5 flex-shrink-0"
                                       title={m.in_round_robin ? "In round-robin — click to exclude" : "Excluded from round-robin — click to include"}

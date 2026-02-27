@@ -37,9 +37,10 @@ export default async function BookSlugPage({ params }: PageProps) {
 
   if (team) {
     // Render team landing page
-    const [eventTypes, settings] = await Promise.all([
+    const [eventTypes, settings, roundRobinMembers] = await Promise.all([
       getTeamEventTypes(team.id),
       getSettings(),
+      getTeamRoundRobinMembers(team.id),
     ]);
 
     return (
@@ -105,6 +106,25 @@ export default async function BookSlugPage({ params }: PageProps) {
                   </div>
                 </Link>
               ))}
+            </div>
+          )}
+
+          {/* Team members in round-robin */}
+          {roundRobinMembers.length > 0 && (
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                Your meeting will be with
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {roundRobinMembers.map((m) => (
+                  <div key={m.id} className="flex items-center gap-2 bg-white rounded-full border border-gray-100 pl-1 pr-3 py-1">
+                    <div className="w-6 h-6 bg-indigo-100 rounded-full grid place-items-center text-[10px] font-bold text-indigo-600 flex-shrink-0">
+                      {m.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-sm text-gray-700">{m.name}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </main>
@@ -173,6 +193,28 @@ async function getTeamEventTypes(teamId: string) {
       .order("duration_minutes", { ascending: true });
 
     return data || [];
+  } catch {
+    return [];
+  }
+}
+
+async function getTeamRoundRobinMembers(teamId: string) {
+  try {
+    const { data: memberships } = await supabaseAdmin
+      .from("team_memberships")
+      .select("team_member_id, in_round_robin, team_members ( id, name )")
+      .eq("team_id", teamId)
+      .eq("is_active", true);
+
+    if (!memberships) return [];
+
+    return memberships
+      .filter((m: any) => m.in_round_robin)
+      .map((m: any) => ({
+        id: m.team_members.id,
+        name: m.team_members.name,
+        in_round_robin: m.in_round_robin,
+      }));
   } catch {
     return [];
   }
