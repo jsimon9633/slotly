@@ -1,6 +1,6 @@
 # Slotly — Project Knowledge Base
 
-> **Last updated:** 2026-02-27
+> **Last updated:** 2026-02-27 (Session 2)
 > **Owner:** Alberto (asimon@masterworks.com)
 > **Repo:** https://github.com/jsimon9633/slotly
 > **Live URL:** https://sparkling-tarsier-bc26ef.netlify.app/
@@ -37,7 +37,8 @@
 | `ADMIN_USERNAME` | Admin panel username (`albertos`) |
 | `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth 2.0 client ID (from Google Cloud Console) |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth 2.0 client secret |
-| `GOOGLE_OAUTH_REDIRECT_URI` | (optional) Override OAuth callback URL; auto-derived from request URL if not set |
+| `GOOGLE_OAUTH_REDIRECT_URI` | (optional) Override OAuth callback URL; auto-derived from request URL if not set. **Set this to production callback URL to fix deploy preview OAuth.** |
+| `GOOGLE_OAUTH_HD` | (optional) Google Workspace domain (e.g. `masterworks.com`) — restricts account picker to that domain, prevents personal Gmail sign-in errors |
 | `TOKEN_ENCRYPTION_KEY` | 32-byte hex string (64 hex chars) for AES-256-GCM encryption of OAuth tokens |
 | `SLACK_BOT_TOKEN` | (optional) Slack bot token for re-auth DM notifications |
 | `SLACK_WEBHOOK_URL` | (optional) Slack webhook for channel notifications |
@@ -194,7 +195,13 @@ src/
 - **Re-auth flow** — admin generates re-auth link from `/api/auth/status`, member clicks link → Google OAuth → tokens refreshed
 - **CSRF protection** — OAuth state parameter is HMAC-SHA256 signed with 10-minute expiry
 - **Connection status** — admin API at `/api/auth/status` shows connected/disconnected/revoked per member
-- **Redirect URI auto-detection** — OAuth redirect URI derived from request URL at runtime (works on any domain including deploy previews)
+- **Redirect URI auto-detection** — OAuth redirect URI derived from request URL at runtime; `GOOGLE_OAUTH_REDIRECT_URI` env var overrides for consistent behavior across deploy previews
+- **Workspace domain restriction** — `GOOGLE_OAUTH_HD` env var adds `hd` parameter to Google OAuth URL, restricting account picker to the specified Workspace domain (prevents personal Gmail sign-in)
+- **Error redirects** — `/api/auth/google` redirects to `/join?error=...` on all errors (instead of returning raw JSON), so users always see a proper error page with actionable messages
+- **Consent error guidance** — if Google blocks the connection (wrong account type), error page explains the likely cause and offers a "Try again with a different account" button
+- **"Use work account" hint** — Connect step includes guidance to sign in with work Google account, not personal Gmail
+- **force-dynamic** — all auth/invite API routes export `dynamic = "force-dynamic"` to prevent Next.js/Netlify CDN caching
+- **Server-side logging** — invite validation and OAuth initiation log specific failure reasons (token not found, already used, expired, DB errors) for debugging
 
 ### Booking Management
 - **Manage booking page** (`/manage/[token]`) — view booking details via unique token
@@ -229,6 +236,27 @@ src/
 - **Server-external packages** — googleapis, @sendgrid/mail, resend excluded from client bundle
 - **Cron reminder endpoint** — `/api/cron/reminders` for scheduled booking reminders
 - **Standardized API errors** — consistent error response format via `api-errors.ts`
+
+---
+
+## Known Issues / Pending
+
+### Google OAuth `redirect_uri_mismatch` (ACTIVE — 2026-02-27)
+**Status:** Seeing `Error 400: redirect_uri_mismatch` on production. Google shows "Access blocked: This app's request is invalid."
+
+**Root cause investigation:**
+- Both production and deploy preview callback URLs are registered in Google Cloud Console
+- The `getRedirectUri()` function resolves the redirect URI in this priority: `GOOGLE_OAUTH_REDIRECT_URI` env var → `NEXT_PUBLIC_SITE_URL` + `/api/auth/google/callback` → auto-derive from request URL
+- If `NEXT_PUBLIC_SITE_URL` is not set (or set incorrectly), the redirect URI derived at runtime may not match what's registered in Google Cloud Console
+- The error appears regardless of which Google account is signed in (personal vs Workspace)
+
+**To resolve — check these in order:**
+1. In Netlify env vars, verify `NEXT_PUBLIC_SITE_URL` is set to `https://sparkling-tarsier-bc26ef.netlify.app` (no trailing slash)
+2. In Google Cloud Console → APIs & Services → Credentials → OAuth client, verify `https://sparkling-tarsier-bc26ef.netlify.app/api/auth/google/callback` is in the authorized redirect URIs list
+3. If still failing, set `GOOGLE_OAUTH_REDIRECT_URI` = `https://sparkling-tarsier-bc26ef.netlify.app/api/auth/google/callback` explicitly in Netlify env vars (this overrides all auto-detection)
+4. After changing env vars, **redeploy** (Netlify reads env vars at build time for `NEXT_PUBLIC_` vars and at function runtime for others)
+
+**Workaround:** The `GOOGLE_OAUTH_REDIRECT_URI` env var is the most reliable fix — it forces all environments to use the exact registered callback URL regardless of which domain serves the page.
 
 ---
 
@@ -431,7 +459,7 @@ Each tier tries silently and catches errors to fall through. `tryGetOAuthClient(
 
 **Key functions:**
 - `getRedirectUri(requestUrl?)` — Computes OAuth callback URL. Priority: `GOOGLE_OAUTH_REDIRECT_URI` env var → `NEXT_PUBLIC_SITE_URL` + path → derive from `request.url` origin. Strips trailing slashes to avoid double-slash bugs.
-- `getGoogleOAuthUrl(state, redirectUri)` — Builds Google consent URL. Scopes: `calendar`, `userinfo.email`, `userinfo.profile`, `openid`. Always requests `access_type=offline` + `prompt=consent` to ensure refresh token.
+- `getGoogleOAuthUrl(state, redirectUri)` — Builds Google consent URL. Scopes: `calendar`, `userinfo.email`, `userinfo.profile`, `openid`. Always requests `access_type=offline` + `prompt=consent` to ensure refresh token. Includes `hd` parameter (from `GOOGLE_OAUTH_HD` env var) to restrict account picker to Workspace domain.
 - `exchangeCodeForTokens(code, redirectUri)` — Exchanges auth code for access + refresh tokens. The `redirectUri` must match what was used in the consent URL.
 - `refreshAccessToken(encryptedRefreshToken)` — Decrypts token, refreshes with Google. Returns `null` if token is revoked/expired (detected via `invalid_grant`).
 - `getValidAccessToken(encryptedRefreshToken, memberId)` — Refreshes token; marks member as revoked in DB if refresh fails.
@@ -531,7 +559,8 @@ The OAuth integration requires these Google Cloud Console settings:
 **Common OAuth errors:**
 - `Error 400: invalid_request` with relative `redirect_uri` → `NEXT_PUBLIC_SITE_URL` is empty. Code now auto-derives from request URL, but env var should be set.
 - `Access blocked: Authorization Error` → consent screen may be in "Testing" mode with limited test users, or redirect URI not registered.
-- `Error 400: redirect_uri_mismatch` → the callback URL registered in Google Cloud Console doesn't match what the app sends.
+- `Error 400: redirect_uri_mismatch` → the callback URL registered in Google Cloud Console doesn't match what the app sends. **Fix:** set `GOOGLE_OAUTH_REDIRECT_URI` env var to the exact registered callback URL.
+- `Access blocked: This app's request is invalid` (with personal Gmail) → if OAuth consent screen is "Internal", only Workspace users can authorize. Set `GOOGLE_OAUTH_HD` env var to restrict account picker to the correct domain. Code now shows helpful error message + retry button instead of leaving user on Google's dead-end error page.
 
 ---
 
