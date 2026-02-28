@@ -64,10 +64,10 @@ function formatDateTime(isoString: string, timezone: string): string {
 }
 
 function getQualBadge(score: number): { label: string; color: string; bgColor: string } {
-  if (score >= 80) return { label: "Strong Lead", color: "#065f46", bgColor: "#d1fae5" };
-  if (score >= 60) return { label: "Promising", color: "#92400e", bgColor: "#fef3c7" };
-  if (score >= 40) return { label: "Moderate", color: "#9a3412", bgColor: "#ffedd5" };
-  return { label: "Needs Qualification", color: "#991b1b", bgColor: "#fee2e2" };
+  if (score >= 75) return { label: "Ready to Invest", color: "#065f46", bgColor: "#d1fae5" };
+  if (score >= 60) return { label: "Strong Prospect", color: "#92400e", bgColor: "#fef3c7" };
+  if (score >= 45) return { label: "Standard Lead", color: "#1e40af", bgColor: "#dbeafe" };
+  return { label: "Early Stage", color: "#9a3412", bgColor: "#ffedd5" };
 }
 
 function getApproachDescription(approach: string): string {
@@ -247,10 +247,34 @@ function buildMeetingPrepEmail(data: MeetingPrepEmailData): { subject: string; h
           ${behaviorSignals.is_repeat_booker ? ` — Repeat booker (${behaviorSignals.prior_bookings_count} prior)` : " — First booking"}
         </td>
       </tr>
-      ${keywordSignals.investment_keywords.length > 0 ? `
+      ${keywordSignals.capital_signals.length > 0 ? `
       <tr>
         <td style="font-size:13px;color:#059669;padding:2px 0;">
-          Keywords: ${escapeHtml(keywordSignals.investment_keywords.join(", "))}
+          Capital signals: ${escapeHtml(keywordSignals.capital_signals.join(", "))}
+        </td>
+      </tr>` : ""}
+      ${keywordSignals.diversifier_signals.length > 0 ? `
+      <tr>
+        <td style="font-size:13px;color:#059669;padding:2px 0;">
+          Diversifier signals: ${escapeHtml(keywordSignals.diversifier_signals.join(", "))}
+        </td>
+      </tr>` : ""}
+      ${keywordSignals.action_signals.length > 0 ? `
+      <tr>
+        <td style="font-size:13px;color:#2563eb;padding:2px 0;">
+          Action intent: ${escapeHtml(keywordSignals.action_signals.join(", "))}
+        </td>
+      </tr>` : ""}
+      ${keywordSignals.long_term_signals.length > 0 ? `
+      <tr>
+        <td style="font-size:13px;color:#059669;padding:2px 0;">
+          Long-term mindset: ${escapeHtml(keywordSignals.long_term_signals.join(", "))}
+        </td>
+      </tr>` : ""}
+      ${keywordSignals.red_flags.length > 0 ? `
+      <tr>
+        <td style="font-size:13px;color:#dc2626;padding:2px 0;">
+          Red flags: ${escapeHtml(keywordSignals.red_flags.join(", "))}
         </td>
       </tr>` : ""}
       <tr>

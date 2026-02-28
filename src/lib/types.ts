@@ -188,8 +188,11 @@ export interface BehaviorSignals {
 }
 
 export interface KeywordSignals {
-  investment_keywords: string[];
-  negative_keywords: string[];
+  capital_signals: string[];
+  action_signals: string[];
+  diversifier_signals: string[];
+  long_term_signals: string[];
+  red_flags: string[];
   keyword_score: number;
 }
 

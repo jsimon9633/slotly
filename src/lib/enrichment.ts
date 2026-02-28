@@ -84,28 +84,56 @@ const AFFLUENT_COUNTRY_CODES: Record<string, { geo: string; score: number }> = {
   "+972": { geo: "Israel", score: 8 },
 };
 
-// Strong intent: financial literacy signals that indicate a qualified investor
-const INVESTMENT_KEYWORDS = [
-  "invest", "portfolio", "diversif", "allocat", "accredit",
-  "net worth", "capital", "wealth", "financial advisor", "tax",
-  "estate", "trust", "hedge", "private equity", "alternative",
-  "asset", "roi", "returns", "yield", "equity",
+// ── Keyword Signal Groups ──
+// Philosophy: booking a call is already a strong positive. These signals
+// help us UNDERSTAND the person, not judge them. Bias toward positive.
+
+// Capital signals — language suggesting they have investable assets
+const CAPITAL_SIGNALS = [
+  "accredit", "net worth", "capital", "liquidity", "wealth",
+  "financial advisor", "advisor", "tax", "estate", "trust",
+  "private equity", "hedge fund", "family office", "ira",
+  "retirement", "401k", "brokerage", "assets under",
 ];
 
-// Buying intent: asking about offerings/process = interested in taking action
-const INTEREST_KEYWORDS = [
+// Action signals — ANY intent to do something = positive
+// Most people have never heard of art investing; if they're asking, they're engaged
+const ACTION_SIGNALS = [
   "available", "offerings", "current works", "which artists",
   "minimum", "get started", "how does it work", "how do i",
   "interested", "learn more", "sign up", "next steps",
   "what can i", "what do you have", "tell me about",
-  "how much", "pricing", "fees",
+  "how much", "pricing", "fees", "ready to", "want to",
+  "looking to", "considering", "thinking about", "open to",
+  "schedule", "discuss", "options", "opportunity",
 ];
 
-// True negatives: signals that someone is clearly unqualified or not a real prospect
-const NEGATIVE_KEYWORDS = [
-  "student", "school project", "homework", "class assignment",
-  "research paper", "don't know anything", "what is this",
-  "what is masterworks", "never heard", "is this a scam", "is this legit",
+// Diversifier signals — already has a portfolio, exploring alternatives
+// These are the ideal Masterworks customers: existing investors adding art
+const DIVERSIFIER_SIGNALS = [
+  "diversif", "portfolio", "allocat", "alternative", "asset class",
+  "stocks", "bonds", "real estate", "s&p", "market",
+  "uncorrelat", "inflation", "hedge", "non-traditional",
+  "rebalance", "overweight", "exposure",
+];
+
+// Long-term mindset — art is a 3-7yr hold; patience = great fit
+const LONG_TERM_SIGNALS = [
+  "long term", "long-term", "hold", "patient", "wealth preservation",
+  "legacy", "estate planning", "generational", "store of value",
+  "buy and hold", "time horizon", "illiquid",
+];
+
+// Red flags — ONLY genuine disqualifiers, not curiosity or unfamiliarity
+const RED_FLAGS = [
+  // Not a real prospect
+  "student", "school project", "homework", "class assignment", "research paper",
+  // Scam/trust concerns (flag for approach, not disqualifying on its own)
+  "is this a scam", "is this legit", "pyramid", "ponzi",
+  // Wrong mindset for illiquid 3-7yr art holdings
+  "quick money", "fast returns", "guaranteed return", "get rich",
+  "day trade", "flip it", "quick profit", "make money fast",
+  "when can i sell", "how fast can i sell", "short term gain",
 ];
 
 // ─── Signal Analysis Functions ──────────────────────────
@@ -298,74 +326,84 @@ export async function analyzeBehavior(
 }
 
 export function analyzeKeywords(notes: string | null): KeywordSignals {
-  if (!notes || notes.trim().length === 0) {
-    return { investment_keywords: [], negative_keywords: [], keyword_score: 0 };
-  }
+  const empty: KeywordSignals = {
+    capital_signals: [], action_signals: [], diversifier_signals: [],
+    long_term_signals: [], red_flags: [], keyword_score: 0,
+  };
+  if (!notes || notes.trim().length === 0) return empty;
 
   const lower = notes.toLowerCase();
+  // Also check custom answers if they were appended to notes
   let score = 0;
 
-  // Financial literacy keywords (strong signal)
-  const foundInvestment = INVESTMENT_KEYWORDS.filter((kw) => lower.includes(kw));
-  score += Math.min(foundInvestment.length * 3, 12);
+  const capital = CAPITAL_SIGNALS.filter((kw) => lower.includes(kw));
+  score += Math.min(capital.length * 4, 12); // strong: they have money
 
-  // Interest/intent keywords (asking what's available = buying signal)
-  const foundInterest = INTEREST_KEYWORDS.filter((kw) => lower.includes(kw));
-  score += Math.min(foundInterest.length * 3, 9);
+  const action = ACTION_SIGNALS.filter((kw) => lower.includes(kw));
+  score += Math.min(action.length * 3, 9); // positive: intent to act
 
-  // True negatives only (clearly unqualified)
-  const foundNegative = NEGATIVE_KEYWORDS.filter((kw) => lower.includes(kw));
-  score -= foundNegative.length * 4;
+  const diversifier = DIVERSIFIER_SIGNALS.filter((kw) => lower.includes(kw));
+  score += Math.min(diversifier.length * 4, 8); // ideal customer
+
+  const longTerm = LONG_TERM_SIGNALS.filter((kw) => lower.includes(kw));
+  score += Math.min(longTerm.length * 3, 6); // great fit for art
+
+  const flags = RED_FLAGS.filter((kw) => lower.includes(kw));
+  score -= flags.length * 4; // only genuine disqualifiers
 
   return {
-    investment_keywords: [...foundInvestment, ...foundInterest],
-    negative_keywords: foundNegative,
+    capital_signals: capital,
+    action_signals: action,
+    diversifier_signals: diversifier,
+    long_term_signals: longTerm,
+    red_flags: flags,
     keyword_score: Math.max(score, -10),
   };
 }
 
 // ─── Claude AI Synthesis ────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a sales intelligence analyst for Masterworks, a platform for fractional art investing ($10k minimum, targeting accredited investors and high-net-worth individuals).
+const SYSTEM_PROMPT = `You are a meeting prep analyst for Masterworks, a platform for fractional art investing ($10k minimum, accredited investors, 3-7 year hold periods).
 
-A potential investor has booked a meeting. Your job is to analyze all available data and provide a concise meeting prep for the salesperson doing a 15-30 minute qualification call.
+A potential investor has booked a meeting. The act of scheduling a call is ALREADY a strong positive signal — they took action. Your job is to help the salesperson UNDERSTAND this person and have a great conversation, not to judge or disqualify them.
 
 Respond ONLY with valid JSON in this exact format:
 {
   "qualification_score": <number 0-100>,
-  "summary": "<2-3 sentences summarizing who this person likely is and their investment readiness>",
-  "talking_points": ["<point 1>", "<point 2>", "<point 3>"],
-  "risk_flags": ["<flag if any>"],
-  "recommended_approach": "<one of: consultative, direct, educational, cautious>"
+  "summary": "<2-3 sentences about who this person likely is — their situation, what brought them here, what they might care about>",
+  "talking_points": ["<conversation starter or angle 1>", "<point 2>", "<point 3>"],
+  "risk_flags": ["<only genuine concerns, if any — leave empty array if none>"],
+  "recommended_approach": "<one of: direct, consultative, educational, cautious>"
 }
 
-IMPORTANT context about Masterworks investors:
+CRITICAL CONTEXT — what we know about real Masterworks investors:
 
-Email domains:
-- Personal email (Gmail, etc.) is a POSITIVE signal. The majority of actual HNW investors use personal email because they are investing for themselves, not through an employer. A clean personal email + high-wealth area code is a strong lead.
-- Corporate email is neutral-to-positive. Could be a finance pro exploring alternatives, or just someone researching at work.
-- High-value finance domain (Goldman, BlackRock, etc.) is a strong positive regardless.
+1. PERSONAL EMAIL IS POSITIVE. The majority of actual HNW investors use personal Gmail because they are investing for themselves. A personal email with a high-wealth area code is a strong lead.
 
-Notes/topic interpretation:
-- Asking direct questions about what's available, current offerings, how to get started, or pricing = BUYING INTENT. This is a strong positive signal — they are ready to take action.
-- Most Masterworks investors had NEVER heard of art investing before discovering us. Being new to the concept is completely normal and NOT a negative. "How does this work?" or "Tell me about investing in art" = curious and engaged.
-- True negatives are specific: "school project", "homework", "is this a scam" — signals someone is clearly not a real prospect.
-- Do NOT penalize someone for asking questions or being unfamiliar with art investing.
+2. MOST INVESTORS WERE NEW TO ART INVESTING. They had never heard you could invest in art. Unfamiliarity is completely normal — if someone asks "how does this work?" or "what's available?", that is BUYING INTENT, not ignorance. Any action-oriented language is positive.
 
-Scoring guide:
-- 80-100: Strong lead. Personal email + high-wealth area + direct questions about offerings/pricing. Ready to invest.
-- 60-79: Promising. Good signals (email, area, or intent keywords), worth a thorough conversation.
-- 40-59: Moderate. Some positive signals but missing key indicators, needs qualification during the call.
-- 20-39: Weak. Few positive signals, likely early-stage curiosity.
-- 0-19: Very unlikely qualified. Student, researcher, or clearly not a prospect.
+3. ART FANS ≠ ART INVESTORS. Someone who talks about "beautiful paintings" and "culture" may love art but won't invest. Investors talk about "returns", "portfolio", "diversification", "allocation". But don't penalize art fans — they might convert with the right framing.
+
+4. LONG-TERM MINDSET = GREAT FIT. Art is illiquid, 3-7 year holds. Language about patience, wealth preservation, estate planning, diversification = ideal customer. Language about "quick money", "fast returns", "guaranteed" = wrong asset class for them.
+
+5. CAPITAL SIGNALS MATTER MOST. Words like "accredited", "financial advisor", "trust", "estate", "net worth", "private equity" suggest they have investable capital. Area codes from high-wealth regions reinforce this.
+
+6. DIVERSIFIERS ARE THE BEST LEADS. Someone who already has stocks/bonds/real estate and mentions wanting to diversify or find alternatives — that's the ideal Masterworks customer.
+
+Scoring baseline: Start at 55 (they booked a call — that's already above average). Add for positive signals, subtract only for genuine red flags.
+- 75-100: Ready to invest. Capital signals + action intent + diversification language.
+- 60-74: Strong prospect. Good signals, personalize the conversation to their situation.
+- 45-59: Standard lead. Needs discovery — find out their situation during the call.
+- 30-44: Early stage. May need education on the asset class first.
+- Below 30: Only for genuine red flags (student, scam concern, get-rich-quick mindset).
 
 Approach guide:
-- "direct": High confidence lead. Get to specifics quickly — available offerings, minimums, timeline.
-- "consultative": Promising but needs discovery. Ask about portfolio, goals, timeline.
-- "educational": Moderate lead. Start with "how Masterworks works" before qualifying.
-- "cautious": Weak signals. Be friendly but efficiently qualify budget/accreditation early.
+- "direct": Capital + diversification signals. Jump to available offerings, minimums, process.
+- "consultative": Good signals but needs discovery. Ask about current portfolio, goals, timeline.
+- "educational": New to art investing (most people are!). Start with how Masterworks works, then qualify.
+- "cautious": Genuine red flags present. Be friendly but qualify budget/intent early.
 
-Be realistic and honest. Do not inflate scores — but do not penalize personal email or unfamiliarity with art investing.`;
+Your goal is to make the salesperson feel PREPARED, not to gatekeep. Help them connect with this person.`;
 
 interface ClaudeResult {
   qualification_score: number;
@@ -393,29 +431,35 @@ async function synthesizeWithClaude(
 
   const client = new Anthropic({ apiKey });
 
+  const allPositiveSignals = [
+    ...keywordSignals.capital_signals.map((s) => `[capital] ${s}`),
+    ...keywordSignals.action_signals.map((s) => `[action] ${s}`),
+    ...keywordSignals.diversifier_signals.map((s) => `[diversifier] ${s}`),
+    ...keywordSignals.long_term_signals.map((s) => `[long-term] ${s}`),
+  ];
+
   const userMessage = `Meeting booked for: ${input.eventTitle}
 Scheduled: ${input.startTime}
 Lead time: ${behaviorSignals.lead_time_hours} hours from now
 
-INVITEE DATA:
+PERSON:
 Name: ${input.inviteeName}
 Email: ${input.inviteeEmail}
 Phone: ${input.inviteePhone || "Not provided"}
 
-SIGNAL ANALYSIS:
-- Email domain: ${emailAnalysis.domain} (${emailAnalysis.is_personal ? "personal" : "corporate"})${emailAnalysis.company_inference ? `, likely company: ${emailAnalysis.company_inference}` : ""}
-- Email pattern: ${emailAnalysis.handle_pattern}
-- Phone: ${phoneAnalysis.area_code ? `area code ${phoneAnalysis.area_code}` : phoneAnalysis.country_code} (${phoneAnalysis.geo_inference || "unknown location"})
-- Wealth indicator: ${phoneAnalysis.wealth_indicator}
-- Booked at: ${behaviorSignals.booking_hour_local}:00 on ${behaviorSignals.booking_day}, ${behaviorSignals.lead_time_hours}h ahead
-- Repeat booker: ${behaviorSignals.is_repeat_booker ? `Yes (${behaviorSignals.prior_bookings_count} prior bookings)` : "No (first booking)"}
-${keywordSignals.investment_keywords.length > 0 ? `- Investment keywords found: ${keywordSignals.investment_keywords.join(", ")}` : "- No investment keywords in notes"}
-${keywordSignals.negative_keywords.length > 0 ? `- Negative signals: ${keywordSignals.negative_keywords.join(", ")}` : ""}
+WHAT WE KNOW:
+- Email: ${emailAnalysis.domain} (${emailAnalysis.is_personal ? "personal — investing for themselves" : "corporate"})${emailAnalysis.company_inference ? `, likely company: ${emailAnalysis.company_inference}` : ""}
+- Email handle: ${emailAnalysis.handle_pattern}
+- Location signal: ${phoneAnalysis.geo_inference || "unknown"} (${phoneAnalysis.wealth_indicator} wealth area)${phoneAnalysis.area_code ? `, area code ${phoneAnalysis.area_code}` : ""}
+- Booking behavior: ${behaviorSignals.booking_hour_local}:00 on ${behaviorSignals.booking_day}, ${behaviorSignals.lead_time_hours}h lead time
+- History: ${behaviorSignals.is_repeat_booker ? `Repeat booker (${behaviorSignals.prior_bookings_count} prior)` : "First booking"}
+${allPositiveSignals.length > 0 ? `- Positive signals in notes: ${allPositiveSignals.join(", ")}` : "- No specific keyword signals (that's fine — most investors don't write essays)"}
+${keywordSignals.red_flags.length > 0 ? `- Red flags: ${keywordSignals.red_flags.join(", ")}` : ""}
 
-NOTES/TOPIC: ${input.inviteeNotes || "None provided"}
-${input.customAnswers ? `\nCUSTOM FORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
+THEIR NOTES/TOPIC: ${input.inviteeNotes || "None provided"}
+${input.customAnswers ? `\nFORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
 
-PRE-COMPUTED SIGNAL SCORE: ${tier1Score}/100`;
+SIGNAL SCORE: ${tier1Score}/100`;
 
   try {
     const model = "claude-haiku-4-5-20251001";
@@ -496,14 +540,20 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       Promise.resolve(analyzeKeywords(input.inviteeNotes)),
     ]);
 
-    // Compute tier 1 composite score (normalized to 0-100)
-    const rawScore =
-      emailAnalysis.professional_score +
-      phoneAnalysis.wealth_score +
-      behaviorSignals.behavior_score +
-      keywordSignals.keyword_score;
-    // Max possible: 30 (email) + 12 (phone) + 16 (behavior) + 21 (keywords) = 79
-    const tier1Score = Math.min(100, Math.max(0, Math.round((rawScore / 79) * 100)));
+    // Compute tier 1 score — positive baseline philosophy
+    // They booked a call: that's already above average (baseline 45)
+    // Signals add on top; only genuine red flags subtract
+    const BASELINE = 45;
+    const signalBoost =
+      emailAnalysis.professional_score +   // 0-30: email quality
+      phoneAnalysis.wealth_score +          // 0-12: location/wealth area
+      behaviorSignals.behavior_score +      // 0-16: booking behavior
+      keywordSignals.keyword_score;         // -10 to 35: keyword signals
+    // Signal boost is 0–93 positive range, scale to add up to ~45 more points
+    const scaledBoost = Math.round((Math.max(0, signalBoost) / 93) * 45);
+    // Red flag penalty (keyword_score can go negative)
+    const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
+    const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
 
     // Check time budget before Claude call
     const elapsed = Date.now() - startedAt;
