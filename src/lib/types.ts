@@ -5,6 +5,14 @@ export interface Team {
   description: string | null;
   is_active: boolean;
   created_at: string;
+  layout_style?: "single" | "two-panel";
+  calendar_style?: "strip" | "month";
+}
+
+export interface TeamMemberInfo {
+  id: string;
+  name: string;
+  avatar_url: string | null;
 }
 
 export interface TeamMembership {
@@ -13,6 +21,7 @@ export interface TeamMembership {
   team_member_id: string;
   role: "admin" | "member";
   is_active: boolean;
+  in_round_robin: boolean;
   joined_at: string;
 }
 

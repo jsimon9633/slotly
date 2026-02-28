@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import type { EventType, SiteSettings } from "@/lib/types";
+import type { EventType, SiteSettings, TeamMemberInfo } from "@/lib/types";
 import BookingClient from "./BookingClient";
 import { notFound } from "next/navigation";
 
@@ -69,21 +69,22 @@ interface PageProps {
 export default async function BookingPage({ params }: PageProps) {
   const { slug: teamSlug, eventSlug } = await params;
 
-  // Validate team exists
-  const { data: team } = await supabaseAdmin
-    .from("teams")
-    .select("id, name, slug")
-    .eq("slug", teamSlug)
-    .eq("is_active", true)
-    .single();
-
-  // Fetch settings in parallel
-  const settings = await getSettings();
+  // Fetch team + settings in parallel (independent queries)
+  const [{ data: team }, settings] = await Promise.all([
+    supabaseAdmin
+      .from("teams")
+      .select("id, name, slug, layout_style, calendar_style")
+      .eq("slug", teamSlug)
+      .eq("is_active", true)
+      .single(),
+    getSettings(),
+  ]);
 
   if (team) {
     // Try team-scoped lookup first
     const eventType = await getEventType(eventSlug, team.id);
     if (eventType) {
+      const teamMembers = await getTeamRoundRobinMembers(team.id);
       return (
         <BookingClient
           eventType={eventType}
@@ -91,6 +92,9 @@ export default async function BookingPage({ params }: PageProps) {
           slug={eventSlug}
           teamSlug={teamSlug}
           teamName={team.name}
+          teamMembers={teamMembers}
+          layoutStyle={(team.layout_style as "single" | "two-panel") || "single"}
+          calendarStyle={(team.calendar_style as "strip" | "month") || "strip"}
         />
       );
     }
@@ -98,6 +102,7 @@ export default async function BookingPage({ params }: PageProps) {
     // Fallback: event type might be unassigned (team_id is null) but linked from this team's page
     const unassigned = await getUnassignedEventType(eventSlug);
     if (unassigned) {
+      const teamMembers = await getTeamRoundRobinMembers(team.id);
       return (
         <BookingClient
           eventType={unassigned}
@@ -105,6 +110,9 @@ export default async function BookingPage({ params }: PageProps) {
           slug={eventSlug}
           teamSlug={teamSlug}
           teamName={team.name}
+          teamMembers={teamMembers}
+          layoutStyle={(team.layout_style as "single" | "two-panel") || "single"}
+          calendarStyle={(team.calendar_style as "strip" | "month") || "strip"}
         />
       );
     }
@@ -173,6 +181,28 @@ async function getUnassignedEventType(slug: string): Promise<EventType | null> {
     return data || null;
   } catch {
     return null;
+  }
+}
+
+async function getTeamRoundRobinMembers(teamId: string): Promise<TeamMemberInfo[]> {
+  try {
+    const { data: memberships } = await supabaseAdmin
+      .from("team_memberships")
+      .select("team_member_id, in_round_robin, team_members ( id, name, avatar_url )")
+      .eq("team_id", teamId)
+      .eq("is_active", true);
+
+    if (!memberships) return [];
+
+    return memberships
+      .filter((m: any) => m.in_round_robin)
+      .map((m: any) => ({
+        id: m.team_members.id,
+        name: m.team_members.name.split(" ")[0], // first name only for public display
+        avatar_url: m.team_members.avatar_url,
+      }));
+  } catch {
+    return [];
   }
 }
 

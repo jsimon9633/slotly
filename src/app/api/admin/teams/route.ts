@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data: teams, error } = await supabaseAdmin
       .from("teams")
-      .select("id, name, slug, description, is_active, created_at")
+      .select("id, name, slug, description, is_active, created_at, layout_style, calendar_style")
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -124,7 +124,7 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, name, slug, description, is_active } = body;
+  const { id, name, slug, description, is_active, layout_style, calendar_style } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing team id");
@@ -150,6 +150,20 @@ export async function PATCH(request: NextRequest) {
 
   if (is_active !== undefined) {
     updates.is_active = Boolean(is_active);
+  }
+
+  if (layout_style !== undefined) {
+    if (!["single", "two-panel"].includes(layout_style)) {
+      return badRequest("layout_style must be 'single' or 'two-panel'");
+    }
+    updates.layout_style = layout_style;
+  }
+
+  if (calendar_style !== undefined) {
+    if (!["strip", "month"].includes(calendar_style)) {
+      return badRequest("calendar_style must be 'strip' or 'month'");
+    }
+    updates.calendar_style = calendar_style;
   }
 
   if (Object.keys(updates).length === 0) {

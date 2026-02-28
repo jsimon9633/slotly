@@ -1,6 +1,6 @@
 # Slotly — Project Knowledge Base
 
-> **Last updated:** 2026-02-27 (Session 3)
+> **Last updated:** 2026-02-28 (Session 4)
 > **Owner:** Alberto (asimon@masterworks.com)
 > **Repo:** https://github.com/jsimon9633/slotly
 > **Live URL:** https://sparkling-tarsier-bc26ef.netlify.app/
@@ -143,7 +143,8 @@ src/
         ├── 20260219_add_teams.sql                # Teams, memberships, availability rules
         ├── 20260219_add_noshow_and_smart_scheduling.sql # No-show scoring + smart scheduling columns
         ├── 20260226_add_google_oauth.sql         # OAuth columns on team_members, reauth_tokens table, invite_tokens table
-        └── 20260227_add_round_robin_toggle.sql   # in_round_robin boolean on team_memberships (default true)
+        ├── 20260227_add_round_robin_toggle.sql   # in_round_robin boolean on team_memberships (default true)
+        └── 20260228_add_team_display_settings.sql # layout_style + calendar_style columns on teams
 ```
 
 ---
@@ -156,7 +157,7 @@ src/
 | `event_types` | Bookable events (title, slug, description, duration, color, buffers, limits, booking_questions) |
 | `bookings` | All bookings (invitee info, start/end time, status, manage_token, no_show_score, risk_tier, outcome, custom_answers, reminder_sent_at) |
 | `availability_rules` | Per-member working hours by day of week |
-| `teams` | Team groupings (name, slug, description) |
+| `teams` | Team groupings (name, slug, description, layout_style, calendar_style) |
 | `team_memberships` | Many-to-many: members ↔ teams with roles (admin/member), `in_round_robin` toggle per membership |
 | `team_event_types` | Many-to-many: event types ↔ teams (allows one event type in multiple teams) |
 | `webhooks` | Webhook endpoints (URL, secret, subscribed events) |
@@ -187,6 +188,10 @@ src/
 - **Google Meet auto-creation** — every booking creates a Google Meet link (via `conferenceData` on Calendar event), included in confirmation emails with join button + dial-in details
 - **Multi-team event types** — one event type can belong to multiple teams via `team_event_types` join table; team landing pages, booking pages, and APIs all resolve through both direct `team_id` and the join table
 - **Booking confirmation emails** — HTML emails via SendGrid with meeting details + manage link
+- **Organizer avatar + name** — booking page shows the team member's avatar (from Google OAuth) and first name on the confirmation step; avatar shown as circular image with initials fallback
+- **Expanded layout** (admin-configurable) — two-panel desktop layout: left panel shows event details (title, duration, description, team member avatars); right panel shows date/time selection. Compact widths optimized for 13" embed (256px left panel, 24px gap, max-w-3xl container). Admin toggles via "Expanded Layout" setting per team. DB value remains `"two-panel"` for backwards compat.
+- **Month calendar view** (admin-configurable) — full month grid alternative to horizontal date strip. Shows clickable day cells with available-date highlighting (dot indicator), weekday headers, month/year navigation. Auto-advances to the first bookable month on init (skips past/weekend-only months). Forward navigation disabled past `max_advance_days`. Admin toggles via "Calendar Style" setting per team.
+- **ISR + `generateStaticParams`** — booking pages pre-rendered at build time via `generateStaticParams()` (resolves all team+event combinations), served from CDN with ISR revalidation every 60s for zero cold-start loads
 
 ### Google OAuth Calendar Integration
 - **Per-user OAuth** — each team member connects their Google Calendar via "Sign in with Google" (replaces manual calendar sharing)
@@ -217,7 +222,7 @@ src/
 - **Booking questions** — add custom text/dropdown/checkbox questions per event type
 - **Buffer configuration** — before/after buffer minutes per event type
 - **Booking limits** — min notice hours, max daily bookings, max advance days
-- **Team management** — create teams, add/remove members, set roles (admin/member), per-member round-robin toggle (include/exclude from scheduling), copy booking link button on team cards
+- **Team management** — create teams, add/remove members, set roles (admin/member), per-member round-robin toggle (include/exclude from scheduling), copy booking link button on team cards, per-team display settings (Expanded Layout toggle, Calendar Style toggle)
 - **Team invites** — generate invite links, approve/reject join requests
 - **Analytics dashboard** — booking volume timeline, event type breakdown, team utilization, peak days/hours, cancellation rates (7/30/90 day views)
 - **Booking outcomes** — mark bookings as completed/no-show for data collection
@@ -238,6 +243,7 @@ src/
 - **Server-external packages** — googleapis, @sendgrid/mail, resend excluded from client bundle
 - **Cron reminder endpoint** — `/api/cron/reminders` for scheduled booking reminders
 - **Standardized API errors** — consistent error response format via `api-errors.ts`
+- **Enhanced email templates** — booking confirmation, cancellation, reschedule, and new-booking-alert emails all include Google Meet join button with dial-in details, manage link buttons (reschedule/cancel), and clean table-based HTML layout compatible with all email clients
 
 ---
 
@@ -260,16 +266,26 @@ src/
 
 **Workaround:** The `GOOGLE_OAUTH_REDIRECT_URI` env var is the most reliable fix — it forces all environments to use the exact registered callback URL regardless of which domain serves the page.
 
+### Session 4 QA Fixes (2026-02-28)
+All resolved:
+- **Parallelized server queries** — booking `page.tsx` now fetches team + settings via `Promise.all` instead of sequentially (saves ~50-100ms per page load)
+- **Month calendar forward bound** — forward arrow disabled when next month exceeds `max_advance_days` (was infinite scroll)
+- **Month calendar auto-advance** — initializes to first bookable month, not current month (fixes dead-month bug when remaining days are past/weekend)
+- **Duplicate `maxDate` cleanup** — removed duplicate computation, moved to single declaration after `days` array
+
+### Pending Migration (run in Supabase SQL Editor)
+The `layout_style` and `calendar_style` columns on the `teams` table need to be added. Migration file: `supabase/migrations/20260228_add_team_display_settings.sql`
+
+```sql
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS layout_style text DEFAULT 'single';
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS calendar_style text DEFAULT 'strip';
+```
+
 ---
 
 ## Features — What's Not Built Yet
 
-### High Priority (UX Audit Findings)
-- **Organizer avatar/info** — show team member photo and name on booking page (`avatar_url` now exists on `team_members` via OAuth, UI integration pending)
-- **Two-panel desktop layout** — left panel for event details, right panel for date/time selection (CSS-only at md: breakpoint)
-
-### Medium Priority
-- **Full month calendar option** — alternative to horizontal date strip for desktop users (consider making it a toggle)
+### High Priority
 - **AI Meeting Prep** — enrichment pipeline: booking history → Google search (name+email) → phone fallback → email handle clues → domain scrape (opportunistic) → Claude API synthesis. See `docs/Slotly Enrichment Services to Explore.docx`
 - **Email template customization** — allow admins to customize confirmation/reminder email templates in the UI
 - **Multi-language support** — i18n for booking pages
@@ -347,6 +363,13 @@ Event types can belong to teams via two paths (both are checked everywhere):
 2. **Join table** — `team_event_types` many-to-many table (used when one event type is shared across multiple teams)
 
 All public pages and APIs (team landing, booking page, `/api/availability`, `/api/book`) check both paths: direct `team_id` match first, then fall back to `team_event_types` join table lookup. Admin APIs already use the join table exclusively.
+
+### Layout & Calendar Configuration
+Teams have two admin-configurable display settings stored in the `teams` table:
+- **`layout_style`** — `"single"` (default) or `"two-panel"`. The `"two-panel"` value maps to "Expanded Layout" in the admin UI. BookingClient reads this as `isTwoPanel` (variable name kept for backwards compat). At `md:` breakpoint, renders left details panel + right booking panel.
+- **`calendar_style`** — `"strip"` (default) or `"month"`. Controls whether the date picker is a horizontal scrollable strip or a full month grid calendar. Month calendar auto-advances to the first bookable month and disables forward navigation past `max_advance_days`.
+
+Both settings flow from server component (`page.tsx`) → client component (`BookingClient.tsx`) as props. The server component fetches `layout_style` and `calendar_style` from the `teams` table alongside the team data.
 
 ### Smart Scheduling Badge Logic
 - **Phase 1 (current):** Industry defaults — Tue/Wed/Thu + 10am-2pm slots get "Popular" badge

@@ -32,6 +32,8 @@ interface TeamData {
   created_at: string;
   member_count: number;
   event_type_count: number;
+  layout_style?: "single" | "two-panel";
+  calendar_style?: "strip" | "month";
 }
 
 interface TeamMember {
@@ -117,6 +119,9 @@ export default function AdminTeamsPage() {
 
   // Round-robin toggle loading
   const [roundRobinLoading, setRoundRobinLoading] = useState<string | null>(null);
+
+  // Display settings toggle loading
+  const [displaySettingsLoading, setDisplaySettingsLoading] = useState<string | null>(null);
 
   // Inline event type rename state
   const [editingEventTypeId, setEditingEventTypeId] = useState<string | null>(null);
@@ -486,6 +491,31 @@ export default function AdminTeamsPage() {
     }
   };
 
+  // Toggle display setting for a team (layout_style or calendar_style)
+  const handleToggleDisplaySetting = async (teamId: string, field: "layout_style" | "calendar_style", newValue: string) => {
+    setDisplaySettingsLoading(`${field}-${teamId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/teams?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: teamId, [field]: newValue }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to update (${res.status})`);
+      }
+      // Update local state
+      setTeams((prev) =>
+        prev.map((t) => (t.id === teamId ? { ...t, [field]: newValue } : t))
+      );
+    } catch (err: any) {
+      setError(err.message || "Failed to update display setting.");
+    } finally {
+      setDisplaySettingsLoading(null);
+    }
+  };
+
   // Add event type to team via join table
   const handleLinkEventType = async (eventTypeId: string, teamId: string) => {
     setActionLoading(`link-${eventTypeId}`);
@@ -669,6 +699,12 @@ export default function AdminTeamsPage() {
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
             Branding
+          </Link>
+          <Link
+            href="/admin/email-templates"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Emails
           </Link>
           <Link
             href="/admin/webhooks"
@@ -964,6 +1000,76 @@ export default function AdminTeamsPage() {
                               <Check className="w-4 h-4" /> Saved
                             </span>
                           )}
+                        </div>
+
+                        {/* Display Settings */}
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Display Settings</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Layout style toggle */}
+                            <div className="bg-gray-50 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">Expanded Layout</div>
+                                <div className="text-[11px] text-gray-400">
+                                  {(team.layout_style || "single") === "single" ? "Single column" : "Expanded (details + booking)"}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleToggleDisplaySetting(
+                                  team.id,
+                                  "layout_style",
+                                  (team.layout_style || "single") === "single" ? "two-panel" : "single"
+                                )}
+                                disabled={displaySettingsLoading === `layout_style-${team.id}`}
+                                className="flex items-center gap-1.5 flex-shrink-0"
+                                title="Toggle desktop layout"
+                              >
+                                <div
+                                  className={`relative w-8 h-[18px] rounded-full transition-colors ${
+                                    (team.layout_style || "single") === "two-panel" ? "bg-indigo-500" : "bg-gray-300"
+                                  } ${displaySettingsLoading === `layout_style-${team.id}` ? "opacity-50" : ""}`}
+                                >
+                                  <div
+                                    className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${
+                                      (team.layout_style || "single") === "two-panel" ? "translate-x-[16px]" : "translate-x-[2px]"
+                                    }`}
+                                  />
+                                </div>
+                              </button>
+                            </div>
+
+                            {/* Calendar style toggle */}
+                            <div className="bg-gray-50 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">Calendar View</div>
+                                <div className="text-[11px] text-gray-400">
+                                  {(team.calendar_style || "strip") === "strip" ? "Horizontal strip" : "Compact month grid"}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleToggleDisplaySetting(
+                                  team.id,
+                                  "calendar_style",
+                                  (team.calendar_style || "strip") === "strip" ? "month" : "strip"
+                                )}
+                                disabled={displaySettingsLoading === `calendar_style-${team.id}`}
+                                className="flex items-center gap-1.5 flex-shrink-0"
+                                title="Toggle calendar view"
+                              >
+                                <div
+                                  className={`relative w-8 h-[18px] rounded-full transition-colors ${
+                                    (team.calendar_style || "strip") === "month" ? "bg-indigo-500" : "bg-gray-300"
+                                  } ${displaySettingsLoading === `calendar_style-${team.id}` ? "opacity-50" : ""}`}
+                                >
+                                  <div
+                                    className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${
+                                      (team.calendar_style || "strip") === "month" ? "translate-x-[16px]" : "translate-x-[2px]"
+                                    }`}
+                                  />
+                                </div>
+                              </button>
+                            </div>
+                          </div>
                         </div>
 
                         {/* Members section */}

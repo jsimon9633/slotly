@@ -21,7 +21,7 @@ import {
   Download,
 } from "lucide-react";
 import Link from "next/link";
-import type { EventType, TimeSlot, SiteSettings } from "@/lib/types";
+import type { EventType, TimeSlot, SiteSettings, TeamMemberInfo } from "@/lib/types";
 
 type Step = "date" | "time" | "form" | "confirmed";
 
@@ -169,9 +169,12 @@ interface BookingClientProps {
   slug: string;
   teamSlug: string;
   teamName: string;
+  teamMembers?: TeamMemberInfo[];
+  layoutStyle?: "single" | "two-panel";
+  calendarStyle?: "strip" | "month";
 }
 
-export default function BookingClient({ eventType, settings, slug, teamSlug, teamName }: BookingClientProps) {
+export default function BookingClient({ eventType, settings, slug, teamSlug, teamName, teamMembers, layoutStyle = "single", calendarStyle = "strip" }: BookingClientProps) {
   const isEmbed = useIsEmbed();
   const dateScrollRef = useRef<HTMLDivElement>(null);
 
@@ -297,6 +300,37 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const today = useMemo(() => startOfDay(new Date()), []);
   const maxDays = (eventType.max_advance_days || 10) + 1; // +1 to include today
   const days = useMemo(() => Array.from({ length: maxDays }, (_, i) => addDays(today, i)), [today, maxDays]);
+  const maxDate = addDays(today, maxDays - 1);
+
+  // Expanded layout — variable named isTwoPanel for backwards compat with DB value "two-panel"
+  const isTwoPanel = layoutStyle === "two-panel" && !isEmbed;
+
+  // Month calendar state — initialize to the first bookable date's month
+  // (skip weekends from today forward so the calendar doesn't open on a dead month)
+  const [viewMonth, setViewMonth] = useState(() => {
+    const d = new Date();
+    for (let i = 0; i < 14; i++) {
+      const check = addDays(d, i);
+      if (check.getDay() !== 0 && check.getDay() !== 6) return check.getMonth();
+    }
+    return d.getMonth();
+  });
+  const [viewYear, setViewYear] = useState(() => {
+    const d = new Date();
+    for (let i = 0; i < 14; i++) {
+      const check = addDays(d, i);
+      if (check.getDay() !== 0 && check.getDay() !== 6) return check.getFullYear();
+    }
+    return d.getFullYear();
+  });
+
+  // Disable forward arrow when the entire next month is beyond maxDate
+  const canGoNextMonth = useMemo(() => {
+    const nextMonth = viewMonth === 11 ? 0 : viewMonth + 1;
+    const nextYear = viewMonth === 11 ? viewYear + 1 : viewYear;
+    const firstOfNext = new Date(nextYear, nextMonth, 1);
+    return firstOfNext <= maxDate;
+  }, [viewMonth, viewYear, maxDate]);
 
   // Date scroll navigation
   const [dateOffset, setDateOffset] = useState(0);
@@ -433,6 +467,60 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
     URL.revokeObjectURL(url);
   };
 
+  // Organizer display helper
+  const organizerDisplay = teamMembers && teamMembers.length > 0 ? (
+    teamMembers.length === 1 ? (
+      <div className="mb-4 flex items-center gap-3 animate-fade-in">
+        <div className="w-10 h-10 rounded-full overflow-hidden bg-indigo-100 flex-shrink-0">
+          {teamMembers[0].avatar_url ? (
+            <img src={teamMembers[0].avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-full h-full grid place-items-center text-sm font-bold text-indigo-600">
+              {teamMembers[0].name.charAt(0)}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-gray-900">{teamMembers[0].name}</div>
+          <div className="text-xs text-gray-400">{teamName}</div>
+        </div>
+      </div>
+    ) : (
+      <div className="mb-4 flex items-center gap-2 flex-wrap animate-fade-in">
+        <div className="flex items-center -space-x-2">
+          {teamMembers.slice(0, 5).map((m) => (
+            <div key={m.id} className="w-7 h-7 rounded-full border-2 border-white overflow-hidden bg-indigo-100" title={m.name}>
+              {m.avatar_url ? (
+                <img src={m.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-[10px] font-bold text-indigo-600">
+                  {m.name.charAt(0)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <span className="text-xs text-gray-500">
+          {teamMembers.map(m => m.name).join(", ")}
+        </span>
+      </div>
+    )
+  ) : null;
+
+  // Month calendar grid computation
+  const monthDays = useMemo(() => {
+    const firstDay = new Date(viewYear, viewMonth, 1);
+    const lastDay = new Date(viewYear, viewMonth + 1, 0);
+    const startPad = firstDay.getDay(); // 0=Sun
+    const totalDays = lastDay.getDate();
+    const grid: (Date | null)[] = [];
+    for (let i = 0; i < startPad; i++) grid.push(null);
+    for (let d = 1; d <= totalDays; d++) grid.push(new Date(viewYear, viewMonth, d));
+    return grid;
+  }, [viewMonth, viewYear]);
+
+  const canGoPrevMonth = viewYear > today.getFullYear() || (viewYear === today.getFullYear() && viewMonth > today.getMonth());
+
   return (
     <div className={`${isEmbed ? "p-2 sm:p-4" : "min-h-screen p-4"} flex items-center justify-center`}>
       {/* Toast Notification */}
@@ -456,280 +544,416 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
         </div>
       )}
 
-      <div className="w-full max-w-xl">
-        {/* Header */}
-        <div className="mb-4 sm:mb-6 animate-fade-in-up">
-          {!isEmbed && (
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-600 mb-3 sm:mb-4 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Link>
+      <div className={`w-full ${isTwoPanel ? "max-w-xl md:max-w-3xl" : "max-w-xl"}`}>
+        <div className={isTwoPanel ? "md:flex md:gap-5" : ""}>
+
+          {/* ── LEFT PANEL (expanded layout — desktop only) ── */}
+          {isTwoPanel && (
+            <div className="hidden md:block md:w-56 lg:w-64 md:flex-shrink-0 md:self-start">
+              {!isEmbed && (
+                <Link
+                  href={`/book/${teamSlug}`}
+                  className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-600 mb-3 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Back
+                </Link>
+              )}
+              <div className="mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-1.5 h-8 rounded-full" style={{ backgroundColor: eventType.color }} />
+                  <div>
+                    <h1 className="text-lg lg:text-xl font-bold text-gray-900 leading-tight">{eventType.title}</h1>
+                    <p className="text-gray-500 text-xs">{eventType.duration_minutes} min</p>
+                  </div>
+                </div>
+                {eventType.description && (
+                  <p className="text-gray-600 text-xs mt-3 whitespace-pre-line leading-relaxed line-clamp-4">
+                    {eventType.description}
+                  </p>
+                )}
+              </div>
+
+              {/* Organizer avatars — left panel */}
+              {organizerDisplay}
+
+              {/* Selected slot summary (visible during form step) */}
+              {step === "form" && selectedSlot && (
+                <div className="bg-blue-50 rounded-xl p-2.5 text-xs text-blue-800 mt-3">
+                  <div className="font-semibold">
+                    {new Date(selectedSlot.start).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+                  </div>
+                  <div>
+                    {new Date(selectedSlot.start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                    {" "}({eventType.duration_minutes} min)
+                  </div>
+                </div>
+              )}
+            </div>
           )}
-          <div className="flex items-center gap-3">
-            <div
-              className="w-1.5 sm:w-2 h-8 sm:h-10 rounded-full transition-all"
-              style={{ backgroundColor: eventType.color }}
-            />
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-                {eventType.title}
-              </h1>
-              <p className="text-gray-500 text-xs sm:text-sm flex items-center gap-1">
-                {eventType.duration_minutes} min ·{" "}
+
+          {/* ── RIGHT PANEL (or only panel in single mode) ── */}
+          <div className={isTwoPanel ? "md:flex-1 md:min-w-0" : ""}>
+            {/* Header — hidden on desktop when expanded layout (shown in left panel instead) */}
+            <div className={`mb-4 sm:mb-6 animate-fade-in-up ${isTwoPanel ? "md:hidden" : ""}`}>
+              {!isEmbed && (
+                <Link
+                  href={isTwoPanel ? `/book/${teamSlug}` : "/"}
+                  className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-600 mb-3 sm:mb-4 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Back
+                </Link>
+              )}
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-1.5 sm:w-2 h-8 sm:h-10 rounded-full transition-all"
+                  style={{ backgroundColor: eventType.color }}
+                />
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+                    {eventType.title}
+                  </h1>
+                  <p className="text-gray-500 text-xs sm:text-sm flex items-center gap-1">
+                    {eventType.duration_minutes} min ·{" "}
+                    <button
+                      onClick={() => setShowTzPicker(!showTzPicker)}
+                      className="inline-flex items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2"
+                    >
+                      <Globe className="w-3 h-3" />
+                      {timezone.replace(/_/g, " ")}
+                    </button>
+                  </p>
+                  {eventType.description && (
+                    <p className="text-gray-700 text-sm sm:text-base mt-3 whitespace-pre-line leading-relaxed">
+                      {eventType.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Organizer display — hidden on desktop in expanded layout */}
+            <div className={isTwoPanel ? "md:hidden" : ""}>
+              {organizerDisplay}
+            </div>
+
+            {/* Timezone Picker Dropdown */}
+            {showTzPicker && (
+              <div
+                ref={tzPickerRef}
+                className="bg-white rounded-xl border border-gray-200 shadow-lg mb-4 overflow-hidden animate-fade-in"
+              >
+                <div className="p-3 border-b border-gray-100">
+                  <input
+                    type="text"
+                    value={tzSearch}
+                    onChange={(e) => setTzSearch(e.target.value)}
+                    placeholder="Search timezones..."
+                    autoFocus
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {COMMON_TIMEZONES.filter(
+                    (tz) =>
+                      tz.label.toLowerCase().includes(tzSearch.toLowerCase()) ||
+                      tz.value.toLowerCase().includes(tzSearch.toLowerCase())
+                  ).map((tz) => (
+                    <button
+                      key={tz.value}
+                      onClick={() => {
+                        setTimezone(tz.value);
+                        setShowTzPicker(false);
+                        setTzSearch("");
+                      }}
+                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 transition-colors flex items-center justify-between ${
+                        timezone === tz.value ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"
+                      }`}
+                    >
+                      <span>{tz.label}</span>
+                      <span className="text-xs text-gray-500">{tz.value.replace(/_/g, " ")}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Timezone button for expanded layout (shown inline since it's not in the header) */}
+            {isTwoPanel && (
+              <div className="hidden md:block mb-3">
                 <button
                   onClick={() => setShowTzPicker(!showTzPicker)}
-                  className="inline-flex items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2"
+                  className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors underline decoration-dotted underline-offset-2"
                 >
                   <Globe className="w-3 h-3" />
                   {timezone.replace(/_/g, " ")}
                 </button>
-              </p>
-              {eventType.description && (
-                <p className="text-gray-700 text-sm sm:text-base mt-3 whitespace-pre-line leading-relaxed">
-                  {eventType.description}
+              </div>
+            )}
+
+            {/* ── STEP: Confirmed ── */}
+            {step === "confirmed" && confirmation && (
+              <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 text-center animate-scale-in">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-check-pop">
+                  <Check className="w-7 h-7 sm:w-8 sm:h-8 text-green-600" />
+                </div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 animate-fade-in-up" style={{ animationDelay: "0.15s" }}>
+                  You&apos;re booked!
+                </h2>
+                <p className="text-gray-500 text-sm sm:text-base mb-6 animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
+                  A calendar invite has been sent to {email}.
                 </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Timezone Picker Dropdown */}
-        {showTzPicker && (
-          <div
-            ref={tzPickerRef}
-            className="bg-white rounded-xl border border-gray-200 shadow-lg mb-4 overflow-hidden animate-fade-in"
-          >
-            <div className="p-3 border-b border-gray-100">
-              <input
-                type="text"
-                value={tzSearch}
-                onChange={(e) => setTzSearch(e.target.value)}
-                placeholder="Search timezones..."
-                autoFocus
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm"
-              />
-            </div>
-            <div className="max-h-48 overflow-y-auto">
-              {COMMON_TIMEZONES.filter(
-                (tz) =>
-                  tz.label.toLowerCase().includes(tzSearch.toLowerCase()) ||
-                  tz.value.toLowerCase().includes(tzSearch.toLowerCase())
-              ).map((tz) => (
-                <button
-                  key={tz.value}
-                  onClick={() => {
-                    setTimezone(tz.value);
-                    setShowTzPicker(false);
-                    setTzSearch("");
-                  }}
-                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 transition-colors flex items-center justify-between ${
-                    timezone === tz.value ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"
-                  }`}
-                >
-                  <span>{tz.label}</span>
-                  <span className="text-xs text-gray-500">{tz.value.replace(/_/g, " ")}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: Confirmed ── */}
-        {step === "confirmed" && confirmation && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 text-center animate-scale-in">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-check-pop">
-              <Check className="w-7 h-7 sm:w-8 sm:h-8 text-green-600" />
-            </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 animate-fade-in-up" style={{ animationDelay: "0.15s" }}>
-              You&apos;re booked!
-            </h2>
-            <p className="text-gray-500 text-sm sm:text-base mb-6 animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
-              A calendar invite has been sent to {email}.
-            </p>
-            <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2 animate-fade-in-up" style={{ animationDelay: "0.35s" }}>
-              <div className="flex justify-between">
-                <span className="text-gray-500 text-sm">Meeting</span>
-                <span className="text-sm font-medium">{confirmation.event_type}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 text-sm">With</span>
-                <span className="text-sm font-medium">{confirmation.team_member_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 text-sm">When</span>
-                <span className="text-sm font-medium">
-                  {new Date(confirmation.start_time).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                  {" · "}
-                  {new Date(confirmation.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                </span>
-              </div>
-              {topic && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500 text-sm">Topic</span>
-                  <span className="text-sm font-medium">{topic}</span>
+                <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2 animate-fade-in-up" style={{ animationDelay: "0.35s" }}>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 text-sm">Meeting</span>
+                    <span className="text-sm font-medium">{confirmation.event_type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 text-sm">With</span>
+                    <span className="text-sm font-medium">{confirmation.team_member_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 text-sm">When</span>
+                    <span className="text-sm font-medium">
+                      {new Date(confirmation.start_time).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                      {" · "}
+                      {new Date(confirmation.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  </div>
+                  {topic && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500 text-sm">Topic</span>
+                      <span className="text-sm font-medium">{topic}</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Add to Calendar */}
-            <div className="flex flex-col sm:flex-row items-center gap-2 mt-5 animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
-              <a
-                href={buildGoogleCalUrl(confirmation)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
-              >
-                <Calendar className="w-4 h-4" />
-                Google Calendar
-              </a>
-              <a
-                href={buildOutlookUrl(confirmation)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
-              >
-                <Calendar className="w-4 h-4" />
-                Outlook
-              </a>
-              <button
-                onClick={() => downloadIcs(confirmation)}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
-              >
-                <Download className="w-4 h-4" />
-                iCal / Other
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: Date + Time Selection ── */}
-        {(step === "date" || step === "time") && (
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden animate-scale-in">
-            {/* Date Picker */}
-            <div className="p-3 sm:p-4 border-b border-gray-100">
-              <h3 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2 sm:mb-3">
-                Select a Date
-              </h3>
-              <div className="relative">
-                {/* Scroll left */}
-                {dateOffset > 0 && (
-                  <button
-                    onClick={() => setDateOffset(Math.max(0, dateOffset - 1))}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-7 h-7 bg-white/90 shadow-md rounded-full flex items-center justify-center hover:bg-white transition-all"
+                {/* Add to Calendar */}
+                <div className="flex flex-col sm:flex-row items-center gap-2 mt-5 animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
+                  <a
+                    href={buildGoogleCalUrl(confirmation)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
                   >
-                    <ChevronLeft className="w-4 h-4 text-gray-600" />
-                  </button>
-                )}
-                {/* Scroll right */}
-                {dateOffset + visibleDays < days.length && (
-                  <button
-                    onClick={() => setDateOffset(Math.min(days.length - visibleDays, dateOffset + 1))}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-7 h-7 bg-white/90 shadow-md rounded-full flex items-center justify-center hover:bg-white transition-all"
+                    <Calendar className="w-4 h-4" />
+                    Google Calendar
+                  </a>
+                  <a
+                    href={buildOutlookUrl(confirmation)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
                   >
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                    <Calendar className="w-4 h-4" />
+                    Outlook
+                  </a>
+                  <button
+                    onClick={() => downloadIcs(confirmation)}
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                  >
+                    <Download className="w-4 h-4" />
+                    iCal / Other
                   </button>
-                )}
-                <div
-                  ref={dateScrollRef}
-                  className="flex gap-1.5 sm:gap-2 overflow-hidden px-1"
-                >
-                  {days.slice(dateOffset, dateOffset + visibleDays).map((day, i) => {
-                    const isSelected = selectedDate && isSameDay(day, selectedDate);
-                    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-                    const isToday = isSameDay(day, today);
-
-                    return (
-                      <button
-                        key={day.toISOString()}
-                        onClick={() => {
-                          setSelectedDate(day);
-                          setStep("time");
-                        }}
-                        disabled={isWeekend}
-                        className={`flex-1 min-w-0 py-2 sm:py-3 rounded-xl text-center transition-all duration-200 animate-fade-in-up stagger-${i + 1} ${
-                          isSelected
-                            ? "text-white shadow-lg scale-[1.02]"
-                            : isWeekend
-                            ? "bg-gray-50 text-gray-300 cursor-not-allowed"
-                            : isToday
-                            ? "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
-                            : "bg-gray-50 hover:bg-blue-50 hover:border-blue-200 text-gray-700 border border-transparent"
-                        }`}
-                      style={isSelected ? { backgroundColor: settings.primary_color } : undefined}
-                      >
-                        <div className="text-[10px] sm:text-xs font-medium opacity-70">
-                          {format(day, "EEE")}
-                        </div>
-                        <div className="text-base sm:text-lg font-bold">
-                          {format(day, "d")}
-                        </div>
-                        <div className="text-[10px] sm:text-xs opacity-60">
-                          {format(day, "MMM")}
-                        </div>
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Time Slots */}
-            {step === "time" && selectedDate && (
-              <div className="p-3 sm:p-4 animate-fade-in">
-                <h3 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2 sm:mb-3">
-                  Available Times — {format(selectedDate, "EEE, MMM d")}
-                </h3>
-                {loadingSlots ? (
-                  <div className="grid grid-cols-3 gap-2">
-                    {[...Array(6)].map((_, i) => (
-                      <div key={i} className="skeleton h-10 rounded-lg" />
-                    ))}
-                  </div>
-                ) : slots.length === 0 ? (
-                  <div className="text-center py-8 sm:py-12 text-gray-500 animate-fade-in text-sm sm:text-base">
-                    No available times on this day.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 max-h-56 sm:max-h-64 overflow-y-auto hide-scrollbar pt-2 pr-1">
-                    {slots.map((slot, i) => (
-                      <button
-                        key={slot.start}
-                        onClick={() => {
-                          setSelectedSlot(slot);
-                          setStep("form");
-                        }}
-                        className={`relative py-2 sm:py-2.5 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 animate-fade-in-up stagger-${Math.min(i + 1, 9)} hover:scale-[1.03] active:scale-95 ${
-                          slot.label === "popular"
-                            ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300"
-                            : slot.label === "recommended"
-                            ? "bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 hover:border-blue-300"
-                            : "bg-gray-50 hover:bg-blue-50 hover:text-blue-600 hover:shadow-sm text-gray-700"
-                        }`}
+            {/* ── STEP: Date + Time Selection ── */}
+            {(step === "date" || step === "time") && (
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden animate-scale-in">
+                {/* Date Picker */}
+                <div className="p-3 sm:p-4 border-b border-gray-100">
+                  <h3 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2 sm:mb-3">
+                    Select a Date
+                  </h3>
+
+                  {calendarStyle === "month" ? (
+                    /* ── Month Calendar Grid (compact for embed) ── */
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <button
+                          onClick={() => {
+                            if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
+                            else setViewMonth(viewMonth - 1);
+                          }}
+                          disabled={!canGoPrevMonth}
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5 text-gray-600" />
+                        </button>
+                        <span className="text-xs font-semibold text-gray-900">
+                          {new Date(viewYear, viewMonth).toLocaleString(undefined, { month: "long", year: "numeric" })}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
+                            else setViewMonth(viewMonth + 1);
+                          }}
+                          disabled={!canGoNextMonth}
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-7 mb-0.5">
+                        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+                          <div key={d} className="text-center text-[10px] font-medium text-gray-400 py-0.5">
+                            {d}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-0.5">
+                        {monthDays.map((day, i) => {
+                          if (!day) return <div key={`pad-${i}`} />;
+                          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                          const isPast = day < today;
+                          const isBeyondMax = day > maxDate;
+                          const isDisabled = isWeekend || isPast || isBeyondMax;
+                          const isSelected = selectedDate && isSameDay(day, selectedDate);
+                          const isCurrentDay = isSameDay(day, today);
+
+                          return (
+                            <button
+                              key={day.toISOString()}
+                              onClick={() => { setSelectedDate(day); setStep("time"); }}
+                              disabled={isDisabled}
+                              className={`py-1.5 rounded-md text-xs font-medium transition-all ${
+                                isSelected
+                                  ? "text-white shadow-sm"
+                                  : isDisabled
+                                  ? "text-gray-300 cursor-not-allowed"
+                                  : isCurrentDay
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                                  : "hover:bg-blue-50 hover:text-blue-600 text-gray-700"
+                              }`}
+                              style={isSelected ? { backgroundColor: settings.primary_color } : undefined}
+                            >
+                              {day.getDate()}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    /* ── Horizontal Date Strip ── */
+                    <div className="relative">
+                      {dateOffset > 0 && (
+                        <button
+                          onClick={() => setDateOffset(Math.max(0, dateOffset - 1))}
+                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-7 h-7 bg-white/90 shadow-md rounded-full flex items-center justify-center hover:bg-white transition-all"
+                        >
+                          <ChevronLeft className="w-4 h-4 text-gray-600" />
+                        </button>
+                      )}
+                      {dateOffset + visibleDays < days.length && (
+                        <button
+                          onClick={() => setDateOffset(Math.min(days.length - visibleDays, dateOffset + 1))}
+                          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-7 h-7 bg-white/90 shadow-md rounded-full flex items-center justify-center hover:bg-white transition-all"
+                        >
+                          <ChevronRight className="w-4 h-4 text-gray-600" />
+                        </button>
+                      )}
+                      <div
+                        ref={dateScrollRef}
+                        className="flex gap-1.5 sm:gap-2 overflow-hidden px-1"
                       >
-                        {new Date(slot.start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                        {slot.label && (
-                          <span className={`absolute -top-1.5 -right-1 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
-                            slot.label === "popular"
-                              ? "bg-emerald-500 text-white"
-                              : "bg-blue-500 text-white"
-                          }`}>
-                            {slot.label === "popular" ? "Popular" : "Top"}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                        {days.slice(dateOffset, dateOffset + visibleDays).map((day, i) => {
+                          const isSelected = selectedDate && isSameDay(day, selectedDate);
+                          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                          const isToday = isSameDay(day, today);
+
+                          return (
+                            <button
+                              key={day.toISOString()}
+                              onClick={() => {
+                                setSelectedDate(day);
+                                setStep("time");
+                              }}
+                              disabled={isWeekend}
+                              className={`flex-1 min-w-0 py-2 sm:py-3 rounded-xl text-center transition-all duration-200 animate-fade-in-up stagger-${i + 1} ${
+                                isSelected
+                                  ? "text-white shadow-lg scale-[1.02]"
+                                  : isWeekend
+                                  ? "bg-gray-50 text-gray-300 cursor-not-allowed"
+                                  : isToday
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                                  : "bg-gray-50 hover:bg-blue-50 hover:border-blue-200 text-gray-700 border border-transparent"
+                              }`}
+                              style={isSelected ? { backgroundColor: settings.primary_color } : undefined}
+                            >
+                              <div className="text-[10px] sm:text-xs font-medium opacity-70">
+                                {format(day, "EEE")}
+                              </div>
+                              <div className="text-base sm:text-lg font-bold">
+                                {format(day, "d")}
+                              </div>
+                              <div className="text-[10px] sm:text-xs opacity-60">
+                                {format(day, "MMM")}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Time Slots */}
+                {step === "time" && selectedDate && (
+                  <div className="p-3 sm:p-4 animate-fade-in">
+                    <h3 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2 sm:mb-3">
+                      Available Times — {format(selectedDate, "EEE, MMM d")}
+                    </h3>
+                    {loadingSlots ? (
+                      <div className="grid grid-cols-3 gap-2">
+                        {[...Array(6)].map((_, i) => (
+                          <div key={i} className="skeleton h-10 rounded-lg" />
+                        ))}
+                      </div>
+                    ) : slots.length === 0 ? (
+                      <div className="text-center py-8 sm:py-12 text-gray-500 animate-fade-in text-sm sm:text-base">
+                        No available times on this day.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5 sm:gap-2 max-h-56 sm:max-h-64 overflow-y-auto hide-scrollbar pt-2 pr-1">
+                        {slots.map((slot, i) => (
+                          <button
+                            key={slot.start}
+                            onClick={() => {
+                              setSelectedSlot(slot);
+                              setStep("form");
+                            }}
+                            className={`relative py-2 sm:py-2.5 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 animate-fade-in-up stagger-${Math.min(i + 1, 9)} hover:scale-[1.03] active:scale-95 ${
+                              slot.label === "popular"
+                                ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300"
+                                : slot.label === "recommended"
+                                ? "bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 hover:border-blue-300"
+                                : "bg-gray-50 hover:bg-blue-50 hover:text-blue-600 hover:shadow-sm text-gray-700"
+                            }`}
+                          >
+                            {new Date(slot.start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                            {slot.label && (
+                              <span className={`absolute -top-1.5 -right-1 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                                slot.label === "popular"
+                                  ? "bg-emerald-500 text-white"
+                                  : "bg-blue-500 text-white"
+                              }`}>
+                                {slot.label === "popular" ? "Popular" : "Top"}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* ── STEP: Booking Form ── */}
-        {step === "form" && selectedSlot && (
+            {/* ── STEP: Booking Form ── */}
+            {step === "form" && selectedSlot && (
           <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6 animate-slide-in-right">
             <button
               onClick={() => setStep("time")}
@@ -975,13 +1199,16 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
           </div>
         )}
 
-        {/* Powered by */}
-        <div className="mt-4 sm:mt-6 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
-          <span className="text-[10px] sm:text-xs text-gray-500">
-            Powered by{" "}
-            <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
-          </span>
-        </div>
+            {/* Powered by */}
+            <div className="mt-4 sm:mt-5 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
+              <span className="text-[10px] sm:text-xs text-gray-500">
+                Powered by{" "}
+                <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
+              </span>
+            </div>
+
+          </div>{/* close right panel */}
+        </div>{/* close flex wrapper */}
       </div>
     </div>
   );

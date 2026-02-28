@@ -288,6 +288,12 @@ export default function AdminWebhooksPage() {
           >
             Branding
           </Link>
+          <Link
+            href="/admin/email-templates"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Emails
+          </Link>
           <div className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center bg-white text-gray-900 shadow-sm whitespace-nowrap px-2">
             Webhooks
           </div>

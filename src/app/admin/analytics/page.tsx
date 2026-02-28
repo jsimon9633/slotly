@@ -194,6 +194,12 @@ export default function AdminAnalyticsPage() {
             Branding
           </Link>
           <Link
+            href="/admin/email-templates"
+            className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
+          >
+            Emails
+          </Link>
+          <Link
             href="/admin/webhooks"
             className="flex-1 text-sm sm:text-base font-semibold py-2 sm:py-2.5 rounded-md text-center text-gray-400 hover:text-gray-600 transition-all whitespace-nowrap px-2"
           >
