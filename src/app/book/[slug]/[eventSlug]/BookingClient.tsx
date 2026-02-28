@@ -301,7 +301,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const maxDays = (eventType.max_advance_days || 10) + 1; // +1 to include today
   const days = useMemo(() => Array.from({ length: maxDays }, (_, i) => addDays(today, i)), [today, maxDays]);
 
-  // Two-panel layout (disabled in embed mode)
+  // Expanded layout (disabled in embed mode)
   const isTwoPanel = layoutStyle === "two-panel" && !isEmbed;
 
   // Month calendar state
@@ -521,12 +521,12 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
         </div>
       )}
 
-      <div className={`w-full ${isTwoPanel ? "max-w-xl md:max-w-4xl" : "max-w-xl"}`}>
-        <div className={isTwoPanel ? "md:flex md:gap-8" : ""}>
+      <div className={`w-full ${isTwoPanel ? "max-w-xl md:max-w-3xl" : "max-w-xl"}`}>
+        <div className={isTwoPanel ? "md:flex md:gap-5" : ""}>
 
-          {/* ── LEFT PANEL (two-panel desktop only) ── */}
+          {/* ── LEFT PANEL (expanded layout — desktop only) ── */}
           {isTwoPanel && (
-            <div className="hidden md:block md:w-80 md:flex-shrink-0 md:sticky md:top-8 md:self-start">
+            <div className="hidden md:block md:w-56 lg:w-64 md:flex-shrink-0 md:self-start">
               {!isEmbed && (
                 <Link
                   href={`/book/${teamSlug}`}
@@ -536,16 +536,16 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                   Back
                 </Link>
               )}
-              <div className="mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-10 rounded-full" style={{ backgroundColor: eventType.color }} />
+              <div className="mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-1.5 h-8 rounded-full" style={{ backgroundColor: eventType.color }} />
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">{eventType.title}</h1>
-                    <p className="text-gray-500 text-sm">{eventType.duration_minutes} min</p>
+                    <h1 className="text-lg lg:text-xl font-bold text-gray-900 leading-tight">{eventType.title}</h1>
+                    <p className="text-gray-500 text-xs">{eventType.duration_minutes} min</p>
                   </div>
                 </div>
                 {eventType.description && (
-                  <p className="text-gray-600 text-sm mt-4 whitespace-pre-line leading-relaxed">
+                  <p className="text-gray-600 text-xs mt-3 whitespace-pre-line leading-relaxed line-clamp-4">
                     {eventType.description}
                   </p>
                 )}
@@ -556,7 +556,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
 
               {/* Selected slot summary (visible during form step) */}
               {step === "form" && selectedSlot && (
-                <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-800 mt-4">
+                <div className="bg-blue-50 rounded-xl p-2.5 text-xs text-blue-800 mt-3">
                   <div className="font-semibold">
                     {new Date(selectedSlot.start).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
                   </div>
@@ -571,7 +571,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
 
           {/* ── RIGHT PANEL (or only panel in single mode) ── */}
           <div className={isTwoPanel ? "md:flex-1 md:min-w-0" : ""}>
-            {/* Header — hidden on desktop when two-panel (shown in left panel instead) */}
+            {/* Header — hidden on desktop when expanded layout (shown in left panel instead) */}
             <div className={`mb-4 sm:mb-6 animate-fade-in-up ${isTwoPanel ? "md:hidden" : ""}`}>
               {!isEmbed && (
                 <Link
@@ -610,7 +610,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
               </div>
             </div>
 
-            {/* Organizer display — hidden on desktop when two-panel */}
+            {/* Organizer display — hidden on desktop in expanded layout */}
             <div className={isTwoPanel ? "md:hidden" : ""}>
               {organizerDisplay}
             </div>
@@ -656,7 +656,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
               </div>
             )}
 
-            {/* Timezone button for two-panel (shown inline since it's not in the header) */}
+            {/* Timezone button for expanded layout (shown inline since it's not in the header) */}
             {isTwoPanel && (
               <div className="hidden md:block mb-3">
                 <button
@@ -747,20 +747,20 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                   </h3>
 
                   {calendarStyle === "month" ? (
-                    /* ── Month Calendar Grid ── */
+                    /* ── Month Calendar Grid (compact for embed) ── */
                     <div>
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-2">
                         <button
                           onClick={() => {
                             if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
                             else setViewMonth(viewMonth - 1);
                           }}
                           disabled={!canGoPrevMonth}
-                          className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
-                          <ChevronLeft className="w-4 h-4 text-gray-600" />
+                          <ChevronLeft className="w-3.5 h-3.5 text-gray-600" />
                         </button>
-                        <span className="text-sm font-semibold text-gray-900">
+                        <span className="text-xs font-semibold text-gray-900">
                           {new Date(viewYear, viewMonth).toLocaleString(undefined, { month: "long", year: "numeric" })}
                         </span>
                         <button
@@ -768,19 +768,19 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                             if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
                             else setViewMonth(viewMonth + 1);
                           }}
-                          className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors"
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors"
                         >
-                          <ChevronRight className="w-4 h-4 text-gray-600" />
+                          <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
                         </button>
                       </div>
-                      <div className="grid grid-cols-7 mb-1">
-                        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                          <div key={d} className="text-center text-[10px] sm:text-xs font-medium text-gray-400 py-1">
+                      <div className="grid grid-cols-7 mb-0.5">
+                        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+                          <div key={d} className="text-center text-[10px] font-medium text-gray-400 py-0.5">
                             {d}
                           </div>
                         ))}
                       </div>
-                      <div className="grid grid-cols-7 gap-1">
+                      <div className="grid grid-cols-7 gap-0.5">
                         {monthDays.map((day, i) => {
                           if (!day) return <div key={`pad-${i}`} />;
                           const isWeekend = day.getDay() === 0 || day.getDay() === 6;
@@ -795,9 +795,9 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                               key={day.toISOString()}
                               onClick={() => { setSelectedDate(day); setStep("time"); }}
                               disabled={isDisabled}
-                              className={`aspect-square rounded-lg text-sm font-medium transition-all ${
+                              className={`py-1.5 rounded-md text-xs font-medium transition-all ${
                                 isSelected
-                                  ? "text-white shadow-md"
+                                  ? "text-white shadow-sm"
                                   : isDisabled
                                   ? "text-gray-300 cursor-not-allowed"
                                   : isCurrentDay
@@ -1175,16 +1175,16 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
           </div>
         )}
 
+            {/* Powered by */}
+            <div className="mt-4 sm:mt-5 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
+              <span className="text-[10px] sm:text-xs text-gray-500">
+                Powered by{" "}
+                <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
+              </span>
+            </div>
+
           </div>{/* close right panel */}
         </div>{/* close flex wrapper */}
-
-        {/* Powered by */}
-        <div className="mt-4 sm:mt-6 text-center animate-fade-in" style={{ animationDelay: "0.3s" }}>
-          <span className="text-[10px] sm:text-xs text-gray-500">
-            Powered by{" "}
-            <span className="font-semibold rainbow-shimmer">Slotly ⚡</span>
-          </span>
-        </div>
       </div>
     </div>
   );

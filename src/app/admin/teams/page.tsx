@@ -1011,7 +1011,7 @@ export default function AdminTeamsPage() {
                               <div>
                                 <div className="text-sm font-medium text-gray-900">Desktop Layout</div>
                                 <div className="text-[11px] text-gray-400">
-                                  {(team.layout_style || "single") === "single" ? "Single column" : "Two-panel (details + booking)"}
+                                  {(team.layout_style || "single") === "single" ? "Single column" : "Expanded (details + booking)"}
                                 </div>
                               </div>
                               <button
@@ -1043,7 +1043,7 @@ export default function AdminTeamsPage() {
                               <div>
                                 <div className="text-sm font-medium text-gray-900">Calendar View</div>
                                 <div className="text-[11px] text-gray-400">
-                                  {(team.calendar_style || "strip") === "strip" ? "Horizontal strip" : "Full month grid"}
+                                  {(team.calendar_style || "strip") === "strip" ? "Horizontal strip" : "Compact month grid"}
                                 </div>
                               </div>
                               <button
