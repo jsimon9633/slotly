@@ -69,16 +69,16 @@ interface PageProps {
 export default async function BookingPage({ params }: PageProps) {
   const { slug: teamSlug, eventSlug } = await params;
 
-  // Validate team exists + fetch display settings
-  const { data: team } = await supabaseAdmin
-    .from("teams")
-    .select("id, name, slug, layout_style, calendar_style")
-    .eq("slug", teamSlug)
-    .eq("is_active", true)
-    .single();
-
-  // Fetch settings in parallel
-  const settings = await getSettings();
+  // Fetch team + settings in parallel (independent queries)
+  const [{ data: team }, settings] = await Promise.all([
+    supabaseAdmin
+      .from("teams")
+      .select("id, name, slug, layout_style, calendar_style")
+      .eq("slug", teamSlug)
+      .eq("is_active", true)
+      .single(),
+    getSettings(),
+  ]);
 
   if (team) {
     // Try team-scoped lookup first

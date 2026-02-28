@@ -300,8 +300,9 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const today = useMemo(() => startOfDay(new Date()), []);
   const maxDays = (eventType.max_advance_days || 10) + 1; // +1 to include today
   const days = useMemo(() => Array.from({ length: maxDays }, (_, i) => addDays(today, i)), [today, maxDays]);
+  const maxDate = addDays(today, maxDays - 1);
 
-  // Expanded layout (disabled in embed mode)
+  // Expanded layout — variable named isTwoPanel for backwards compat with DB value "two-panel"
   const isTwoPanel = layoutStyle === "two-panel" && !isEmbed;
 
   // Month calendar state — initialize to the first bookable date's month
@@ -322,6 +323,14 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
     }
     return d.getFullYear();
   });
+
+  // Disable forward arrow when the entire next month is beyond maxDate
+  const canGoNextMonth = useMemo(() => {
+    const nextMonth = viewMonth === 11 ? 0 : viewMonth + 1;
+    const nextYear = viewMonth === 11 ? viewYear + 1 : viewYear;
+    const firstOfNext = new Date(nextYear, nextMonth, 1);
+    return firstOfNext <= maxDate;
+  }, [viewMonth, viewYear, maxDate]);
 
   // Date scroll navigation
   const [dateOffset, setDateOffset] = useState(0);
@@ -510,7 +519,6 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
     return grid;
   }, [viewMonth, viewYear]);
 
-  const maxDate = addDays(today, maxDays - 1);
   const canGoPrevMonth = viewYear > today.getFullYear() || (viewYear === today.getFullYear() && viewMonth > today.getMonth());
 
   return (
@@ -783,7 +791,8 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                             if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
                             else setViewMonth(viewMonth + 1);
                           }}
-                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors"
+                          disabled={!canGoNextMonth}
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
                         </button>
