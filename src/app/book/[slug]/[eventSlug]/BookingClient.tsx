@@ -14,7 +14,6 @@ import {
   ArrowLeft,
   Check,
   Loader2,
-  Sparkles,
   X,
   Globe,
   Calendar,
@@ -106,20 +105,26 @@ function detectCountryFromTimezone(tz: string): string {
   return tzCountryMap[tz] || "US";
 }
 
-// Pre-defined business/sales meeting topics (no AI tokens needed)
+// "What brings you here?" chips — each feeds into enrichment keyword analysis
+// "What brings you here?" chips
 const TOPIC_SUGGESTIONS = [
-  "Product Demo",
-  "Partnership Discussion",
-  "Sales Follow-up",
-  "Pricing Review",
-  "Onboarding Call",
-  "Quarterly Check-in",
-  "Strategy Session",
-  "Contract Negotiation",
-  "Technical Integration",
-  "Budget Planning",
-  "Campaign Review",
-  "Talent Acquisition",
+  "Diversify my portfolio",
+  "Learn about art investing",
+  "See what's available",
+  "Explore alternatives to stocks",
+  "Referred by someone",
+  "Just curious",
+];
+
+// "Anything you'd like us to know?" starters — tap to pre-fill, can edit after
+// Research: most people struggle to write from scratch, but tapping a starter
+// gives the enrichment pipeline more signal AND reduces form friction
+const NOTES_STARTERS = [
+  "I currently invest in stocks and bonds",
+  "Looking for long-term investments",
+  "My financial advisor suggested alternatives",
+  "I have questions about the minimum",
+  "Interested in how returns work",
 ];
 
 // Common timezones grouped by region
@@ -216,7 +221,6 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const countrySearchRef = useRef<HTMLInputElement>(null);
   const [topic, setTopic] = useState("");
   const [notes, setNotes] = useState("");
-  const [showTopicSuggestions, setShowTopicSuggestions] = useState(false);
   const [customAnswers, setCustomAnswers] = useState<Record<string, any>>({});
 
   // Dynamic booking questions from event type config
@@ -266,13 +270,6 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
     const raw = e.target.value.replace(/\D/g, "").slice(0, 15);
     setPhone(raw);
   };
-
-  // Memoize filtered topics
-  const filteredTopics = useMemo(() => {
-    if (!topic.trim()) return TOPIC_SUGGESTIONS;
-    const lower = topic.toLowerCase();
-    return TOPIC_SUGGESTIONS.filter((t) => t.toLowerCase().includes(lower));
-  }, [topic]);
 
   // Timezone — auto-detected, user can override
   const [timezone, setTimezone] = useState(() =>
@@ -1072,63 +1069,54 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                 </div>
               </div>
 
-              {/* Topic with AI suggestions */}
+              {/* What brings you here? */}
               <div className="animate-fade-in-up relative" style={{ animationDelay: "0.18s" }}>
-                <label className="flex items-center gap-1.5 text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                  Meeting Topic
-                  <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                  What brings you here?
                 </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={topic}
-                    onChange={(e) => {
-                      setTopic(e.target.value);
-                      setShowTopicSuggestions(true);
-                    }}
-                    onFocus={() => setShowTopicSuggestions(true)}
-                    placeholder="What would you like to discuss?"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none transition-all text-sm sm:text-base pr-8"
-                  />
-                  {topic && (
+                <div className="flex flex-wrap gap-1.5">
+                  {TOPIC_SUGGESTIONS.map((t) => (
                     <button
-                      onClick={() => { setTopic(""); setShowTopicSuggestions(false); }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600 transition-colors"
+                      key={t}
+                      type="button"
+                      onClick={() => setTopic(topic === t ? "" : t)}
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
+                        topic === t
+                          ? "bg-amber-100 text-amber-800 border-amber-300 ring-1 ring-amber-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300"
+                      }`}
                     >
-                      <X className="w-4 h-4" />
+                      {t}
                     </button>
-                  )}
+                  ))}
                 </div>
-                {/* Suggestion chips */}
-                {showTopicSuggestions && filteredTopics.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5 animate-fade-in">
-                    {filteredTopics.slice(0, 6).map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => {
-                          setTopic(t);
-                          setShowTopicSuggestions(false);
-                        }}
-                        className="topic-chip text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 hover:border-amber-300"
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
 
               <div className="animate-fade-in-up" style={{ animationDelay: "0.24s" }}>
                 <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                  Notes (optional)
+                  Anything you&apos;d like us to know? <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
-                <textarea
+                <input
+                  type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Anything you'd like us to know..."
-                  rows={2}
-                  className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none text-sm sm:text-base"
+                  placeholder="Type or tap a suggestion below..."
+                  className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm sm:text-base"
                 />
+                {!notes && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {NOTES_STARTERS.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setNotes(s)}
+                        className="text-xs px-2.5 py-1 rounded-full bg-gray-50 text-gray-500 border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Dynamic Booking Questions */}
