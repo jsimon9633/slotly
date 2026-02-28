@@ -273,14 +273,6 @@ All resolved:
 - **Month calendar auto-advance** — initializes to first bookable month, not current month (fixes dead-month bug when remaining days are past/weekend)
 - **Duplicate `maxDate` cleanup** — removed duplicate computation, moved to single declaration after `days` array
 
-### Pending Migration (run in Supabase SQL Editor)
-The `layout_style` and `calendar_style` columns on the `teams` table need to be added. Migration file: `supabase/migrations/20260228_add_team_display_settings.sql`
-
-```sql
-ALTER TABLE teams ADD COLUMN IF NOT EXISTS layout_style text DEFAULT 'single';
-ALTER TABLE teams ADD COLUMN IF NOT EXISTS calendar_style text DEFAULT 'strip';
-```
-
 ---
 
 ## Features — What's Not Built Yet
