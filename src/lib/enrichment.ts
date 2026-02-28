@@ -84,6 +84,7 @@ const AFFLUENT_COUNTRY_CODES: Record<string, { geo: string; score: number }> = {
   "+972": { geo: "Israel", score: 8 },
 };
 
+// Strong intent: financial literacy signals that indicate a qualified investor
 const INVESTMENT_KEYWORDS = [
   "invest", "portfolio", "diversif", "allocat", "accredit",
   "net worth", "capital", "wealth", "financial advisor", "tax",
@@ -91,9 +92,20 @@ const INVESTMENT_KEYWORDS = [
   "asset", "roi", "returns", "yield", "equity",
 ];
 
+// Buying intent: asking about offerings/process = interested in taking action
+const INTEREST_KEYWORDS = [
+  "available", "offerings", "current works", "which artists",
+  "minimum", "get started", "how does it work", "how do i",
+  "interested", "learn more", "sign up", "next steps",
+  "what can i", "what do you have", "tell me about",
+  "how much", "pricing", "fees",
+];
+
+// True negatives: signals that someone is clearly unqualified or not a real prospect
 const NEGATIVE_KEYWORDS = [
-  "free", "student", "school project", "just curious", "homework",
-  "class assignment", "research paper",
+  "student", "school project", "homework", "class assignment",
+  "research paper", "don't know anything", "what is this",
+  "what is masterworks", "never heard", "is this a scam", "is this legit",
 ];
 
 // ─── Signal Analysis Functions ──────────────────────────
@@ -104,9 +116,12 @@ export function analyzeEmail(email: string): EmailAnalysis {
   let professionalScore = 0;
   let companyInference: string | null = null;
 
-  // Corporate email bonus
-  if (!isPersonal && domain) {
-    professionalScore += 15;
+  // Personal email = individual investor (majority of actual HNW investors use personal Gmail)
+  if (isPersonal) {
+    professionalScore += 10;
+  } else if (domain) {
+    // Corporate email — could be professional investor or just researching
+    professionalScore += 6;
     // Infer company name from domain (strip TLD)
     const parts = domain.split(".");
     if (parts.length >= 2) {
@@ -114,24 +129,26 @@ export function analyzeEmail(email: string): EmailAnalysis {
     }
   }
 
-  // High-value finance domain bonus
+  // High-value finance domain bonus (corporate only — strong signal)
   if (HIGH_VALUE_DOMAINS.has(domain)) {
     professionalScore += 10;
   }
 
-  // Handle pattern analysis
+  // Handle pattern analysis — matters more for personal emails
+  // (clean personal handle = real person investing for themselves)
   let handlePattern: EmailAnalysis["handle_pattern"] = "other";
   if (/^[a-z]+\.[a-z]+$/.test(localPart)) {
     handlePattern = "firstname.lastname";
-    professionalScore += 5;
+    professionalScore += isPersonal ? 7 : 3;
   } else if (/^[a-z]+_[a-z]+$/.test(localPart)) {
     handlePattern = "firstname.lastname"; // underscore variant
-    professionalScore += 5;
+    professionalScore += isPersonal ? 7 : 3;
   } else if (/^[a-z]{2,}$/.test(localPart) && localPart.length <= 15) {
     handlePattern = "firstname";
-    professionalScore += 2;
+    professionalScore += isPersonal ? 5 : 2;
   } else if (/^[a-z]{1,3}\d*$/.test(localPart)) {
     handlePattern = "initials";
+    professionalScore += 2;
   } else {
     handlePattern = "username";
   }
@@ -288,14 +305,20 @@ export function analyzeKeywords(notes: string | null): KeywordSignals {
   const lower = notes.toLowerCase();
   let score = 0;
 
+  // Financial literacy keywords (strong signal)
   const foundInvestment = INVESTMENT_KEYWORDS.filter((kw) => lower.includes(kw));
   score += Math.min(foundInvestment.length * 3, 12);
 
+  // Interest/intent keywords (asking what's available = buying signal)
+  const foundInterest = INTEREST_KEYWORDS.filter((kw) => lower.includes(kw));
+  score += Math.min(foundInterest.length * 3, 9);
+
+  // True negatives only (clearly unqualified)
   const foundNegative = NEGATIVE_KEYWORDS.filter((kw) => lower.includes(kw));
-  score -= foundNegative.length * 5;
+  score -= foundNegative.length * 4;
 
   return {
-    investment_keywords: foundInvestment,
+    investment_keywords: [...foundInvestment, ...foundInterest],
     negative_keywords: foundNegative,
     keyword_score: Math.max(score, -10),
   };
@@ -316,12 +339,25 @@ Respond ONLY with valid JSON in this exact format:
   "recommended_approach": "<one of: consultative, direct, educational, cautious>"
 }
 
+IMPORTANT context about Masterworks investors:
+
+Email domains:
+- Personal email (Gmail, etc.) is a POSITIVE signal. The majority of actual HNW investors use personal email because they are investing for themselves, not through an employer. A clean personal email + high-wealth area code is a strong lead.
+- Corporate email is neutral-to-positive. Could be a finance pro exploring alternatives, or just someone researching at work.
+- High-value finance domain (Goldman, BlackRock, etc.) is a strong positive regardless.
+
+Notes/topic interpretation:
+- Asking direct questions about what's available, current offerings, how to get started, or pricing = BUYING INTENT. This is a strong positive signal — they are ready to take action.
+- Most Masterworks investors had NEVER heard of art investing before discovering us. Being new to the concept is completely normal and NOT a negative. "How does this work?" or "Tell me about investing in art" = curious and engaged.
+- True negatives are specific: "school project", "homework", "is this a scam" — signals someone is clearly not a real prospect.
+- Do NOT penalize someone for asking questions or being unfamiliar with art investing.
+
 Scoring guide:
-- 80-100: Strong lead. Corporate email, high-wealth area, investment keywords, professional signals.
-- 60-79: Promising. Some positive signals, worth a thorough conversation.
-- 40-59: Moderate. Mixed signals, needs qualification during the call.
-- 20-39: Weak. Few positive signals, likely needs education on minimums.
-- 0-19: Very unlikely qualified. May be curious/research only.
+- 80-100: Strong lead. Personal email + high-wealth area + direct questions about offerings/pricing. Ready to invest.
+- 60-79: Promising. Good signals (email, area, or intent keywords), worth a thorough conversation.
+- 40-59: Moderate. Some positive signals but missing key indicators, needs qualification during the call.
+- 20-39: Weak. Few positive signals, likely early-stage curiosity.
+- 0-19: Very unlikely qualified. Student, researcher, or clearly not a prospect.
 
 Approach guide:
 - "direct": High confidence lead. Get to specifics quickly — available offerings, minimums, timeline.
@@ -329,7 +365,7 @@ Approach guide:
 - "educational": Moderate lead. Start with "how Masterworks works" before qualifying.
 - "cautious": Weak signals. Be friendly but efficiently qualify budget/accreditation early.
 
-Be realistic and honest. Do not inflate scores. A personal Gmail with no other signals is a 30-40 at best.`;
+Be realistic and honest. Do not inflate scores — but do not penalize personal email or unfamiliarity with art investing.`;
 
 interface ClaudeResult {
   qualification_score: number;
@@ -466,8 +502,8 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       phoneAnalysis.wealth_score +
       behaviorSignals.behavior_score +
       keywordSignals.keyword_score;
-    // Max possible: 30 + 12 + 16 + 12 = 70
-    const tier1Score = Math.min(100, Math.max(0, Math.round((rawScore / 70) * 100)));
+    // Max possible: 30 (email) + 12 (phone) + 16 (behavior) + 21 (keywords) = 79
+    const tier1Score = Math.min(100, Math.max(0, Math.round((rawScore / 79) * 100)));
 
     // Check time budget before Claude call
     const elapsed = Date.now() - startedAt;
