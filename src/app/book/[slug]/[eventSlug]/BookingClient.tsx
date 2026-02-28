@@ -221,6 +221,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const countrySearchRef = useRef<HTMLInputElement>(null);
   const [topic, setTopic] = useState("");
   const [notes, setNotes] = useState("");
+  const notesInputRef = useRef<HTMLInputElement>(null);
   const [customAnswers, setCustomAnswers] = useState<Record<string, any>>({});
 
   // Dynamic booking questions from event type config
@@ -1097,6 +1098,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                   Anything you&apos;d like us to know? <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
                 <input
+                  ref={notesInputRef}
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -1109,7 +1111,11 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                       <button
                         key={s}
                         type="button"
-                        onClick={() => setNotes(s)}
+                        onClick={() => {
+                          setNotes(s);
+                          // Focus input so user can continue typing after the starter
+                          setTimeout(() => notesInputRef.current?.focus(), 50);
+                        }}
                         className="text-xs px-2.5 py-1 rounded-full bg-gray-50 text-gray-500 border border-gray-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all"
                       >
                         {s}
