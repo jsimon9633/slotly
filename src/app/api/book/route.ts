@@ -19,6 +19,8 @@ import {
 } from "@/lib/api-errors";
 import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
 import { executeInstantWorkflows } from "@/lib/workflows";
+import { runEnrichmentPipeline } from "@/lib/enrichment";
+import type { EnrichmentInput } from "@/lib/types";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -409,30 +411,24 @@ export async function POST(request: NextRequest) {
       timezone,
     }).catch((err) => console.error("[Booking] Webhook fire failed:", err instanceof Error ? err.message : err));
 
-    // Trigger AI enrichment pipeline (best-effort, non-blocking)
-    const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || process.env.URL || "";
-    const CRON_SECRET = process.env.CRON_SECRET || "";
-    if (CRON_SECRET && SITE_URL) {
-      fetch(`${SITE_URL}/api/enrichment/run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${CRON_SECRET}`,
-        },
-        body: JSON.stringify({
-          bookingId: booking.id,
-          inviteeName: cleanName,
-          inviteeEmail: cleanEmail,
-          inviteePhone: cleanPhone,
-          inviteeNotes: cleanNotes,
-          customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
-          startTime: start.toISOString(),
-          timezone,
-          eventTitle: eventType.title,
-          teamMemberName: teamMember.name,
-          teamMemberEmail: teamMember.email,
-        }),
-      }).catch((err) => console.error("[Booking] Enrichment trigger failed:", err instanceof Error ? err.message : err));
+    // Trigger AI enrichment pipeline (runs inline to avoid serverless freeze issues)
+    try {
+      const enrichmentInput: EnrichmentInput = {
+        bookingId: booking.id,
+        inviteeName: cleanName,
+        inviteeEmail: cleanEmail,
+        inviteePhone: cleanPhone,
+        inviteeNotes: cleanNotes,
+        customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
+        startTime: start.toISOString(),
+        timezone,
+        eventTitle: eventType.title,
+        teamMemberName: teamMember.name,
+        teamMemberEmail: teamMember.email,
+      };
+      await runEnrichmentPipeline(enrichmentInput);
+    } catch (enrichErr) {
+      console.error("[Booking] Enrichment pipeline failed:", enrichErr instanceof Error ? enrichErr.message : enrichErr);
     }
 
     // Return confirmation with partial failure warnings
