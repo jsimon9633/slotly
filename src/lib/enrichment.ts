@@ -87,16 +87,21 @@ const AFFLUENT_COUNTRY_CODES: Record<string, { geo: string; score: number }> = {
 // ── Keyword Signal Groups ──
 // Philosophy: booking a call is already a strong positive. These signals
 // help us UNDERSTAND the person, not judge them. Bias toward positive.
+// Research basis: behavioral finance, sales psychology, Masterworks investor profiles.
 
 // Capital signals — language suggesting they have investable assets
+// Research: wealthy people use "deploy", "allocate", "optimize" vs "spend", "afford"
 const CAPITAL_SIGNALS = [
   "accredit", "net worth", "capital", "liquidity", "wealth",
-  "financial advisor", "advisor", "tax", "estate", "trust",
+  "financial advisor", "my advisor", "tax", "estate", "trust",
   "private equity", "hedge fund", "family office", "ira",
   "retirement", "401k", "brokerage", "assets under",
+  "qualified purchaser", "deploy", "due diligence", "track record",
+  "risk-adjusted", "sharpe", "risk adjusted",
 ];
 
 // Action signals — ANY intent to do something = positive
+// Research: "What are the next steps?" and "What's the minimum?" correlate with 2x close rates
 // Most people have never heard of art investing; if they're asking, they're engaged
 const ACTION_SIGNALS = [
   "available", "offerings", "current works", "which artists",
@@ -106,25 +111,34 @@ const ACTION_SIGNALS = [
   "how much", "pricing", "fees", "ready to", "want to",
   "looking to", "considering", "thinking about", "open to",
   "schedule", "discuss", "options", "opportunity",
+  "walk me through", "show me", "explain how", "invest in",
+  "when can i start", "how do i start", "how does this work",
 ];
 
 // Diversifier signals — already has a portfolio, exploring alternatives
-// These are the ideal Masterworks customers: existing investors adding art
+// Research: "my 60/40 isn't performing", "overweight in equities" = ideal Masterworks customer
+// These people already understand investing; they're adding art as an asset class
 const DIVERSIFIER_SIGNALS = [
   "diversif", "portfolio", "allocat", "alternative", "asset class",
   "stocks", "bonds", "real estate", "s&p", "market",
   "uncorrelat", "inflation", "hedge", "non-traditional",
-  "rebalance", "overweight", "exposure",
+  "rebalance", "overweight", "exposure", "correlation",
+  "60/40", "endowment", "tangible asset", "asset allocation",
+  "my investments", "current holdings", "beyond stocks",
 ];
 
 // Long-term mindset — art is a 3-7yr hold; patience = great fit
+// Research: comfort with illiquidity is the #1 predictor of alt-investment success
 const LONG_TERM_SIGNALS = [
   "long term", "long-term", "hold", "patient", "wealth preservation",
   "legacy", "estate planning", "generational", "store of value",
-  "buy and hold", "time horizon", "illiquid",
+  "buy and hold", "time horizon", "illiquid", "patient capital",
+  "hold period", "3 year", "5 year", "7 year", "decade",
+  "wealth transfer", "pass on", "next generation",
 ];
 
 // Red flags — ONLY genuine disqualifiers, not curiosity or unfamiliarity
+// Research: get-rich-quick mindset is structurally wrong for 3-7yr illiquid art
 const RED_FLAGS = [
   // Not a real prospect
   "student", "school project", "homework", "class assignment", "research paper",
@@ -134,6 +148,8 @@ const RED_FLAGS = [
   "quick money", "fast returns", "guaranteed return", "get rich",
   "day trade", "flip it", "quick profit", "make money fast",
   "when can i sell", "how fast can i sell", "short term gain",
+  "double my money", "risk free", "no downside",
+  "get my money back anytime", "need money back",
 ];
 
 // ─── Signal Analysis Functions ──────────────────────────
@@ -325,30 +341,45 @@ export async function analyzeBehavior(
   };
 }
 
-export function analyzeKeywords(notes: string | null): KeywordSignals {
+export function analyzeKeywords(
+  notes: string | null,
+  customAnswers?: Record<string, any> | null,
+): KeywordSignals {
   const empty: KeywordSignals = {
     capital_signals: [], action_signals: [], diversifier_signals: [],
     long_term_signals: [], red_flags: [], keyword_score: 0,
   };
-  if (!notes || notes.trim().length === 0) return empty;
 
-  const lower = notes.toLowerCase();
-  // Also check custom answers if they were appended to notes
+  // Combine notes + custom form answers into one text blob
+  const parts: string[] = [];
+  if (notes?.trim()) parts.push(notes);
+  if (customAnswers) {
+    for (const val of Object.values(customAnswers)) {
+      if (typeof val === "string" && val.trim()) parts.push(val);
+    }
+  }
+  if (parts.length === 0) return empty;
+
+  const text = parts.join(" ").toLowerCase();
   let score = 0;
 
-  const capital = CAPITAL_SIGNALS.filter((kw) => lower.includes(kw));
+  // Research: specificity in notes predicts quality
+  // Detailed notes = engaged prospect who's thought about this
+  if (text.length > 80) score += 3;
+
+  const capital = CAPITAL_SIGNALS.filter((kw) => text.includes(kw));
   score += Math.min(capital.length * 4, 12); // strong: they have money
 
-  const action = ACTION_SIGNALS.filter((kw) => lower.includes(kw));
+  const action = ACTION_SIGNALS.filter((kw) => text.includes(kw));
   score += Math.min(action.length * 3, 9); // positive: intent to act
 
-  const diversifier = DIVERSIFIER_SIGNALS.filter((kw) => lower.includes(kw));
+  const diversifier = DIVERSIFIER_SIGNALS.filter((kw) => text.includes(kw));
   score += Math.min(diversifier.length * 4, 8); // ideal customer
 
-  const longTerm = LONG_TERM_SIGNALS.filter((kw) => lower.includes(kw));
+  const longTerm = LONG_TERM_SIGNALS.filter((kw) => text.includes(kw));
   score += Math.min(longTerm.length * 3, 6); // great fit for art
 
-  const flags = RED_FLAGS.filter((kw) => lower.includes(kw));
+  const flags = RED_FLAGS.filter((kw) => text.includes(kw));
   score -= flags.length * 4; // only genuine disqualifiers
 
   return {
@@ -380,30 +411,37 @@ CRITICAL CONTEXT — what we know about real Masterworks investors:
 
 1. PERSONAL EMAIL IS POSITIVE. The majority of actual HNW investors use personal Gmail because they are investing for themselves. A personal email with a high-wealth area code is a strong lead.
 
-2. MOST INVESTORS WERE NEW TO ART INVESTING. They had never heard you could invest in art. Unfamiliarity is completely normal — if someone asks "how does this work?" or "what's available?", that is BUYING INTENT, not ignorance. Any action-oriented language is positive.
+2. MOST INVESTORS WERE NEW TO ART INVESTING. They had never heard you could invest in art. Unfamiliarity is completely normal — "how does this work?" and "what's available?" are BUYING SIGNALS, not ignorance. Any action-oriented language is positive.
 
-3. ART FANS ≠ ART INVESTORS. Someone who talks about "beautiful paintings" and "culture" may love art but won't invest. Investors talk about "returns", "portfolio", "diversification", "allocation". But don't penalize art fans — they might convert with the right framing.
+3. ART FANS ≠ ART INVESTORS (important for approach). Research shows:
+   - Art FAN language: "beautiful", "culture", "love art", "support artists", "gallery", "creative process" → they have high cultural capital but often lack investable capital. Don't score them down, but recommend "educational" approach that frames art as a financial asset, not an aesthetic one.
+   - Art INVESTOR language: "returns", "portfolio", "allocation", "asset class", "uncorrelated", "diversify" → they view art as a financial instrument. Masterworks CEO: "Our investors are really not art-world people. They're looking for returns."
+   - The best leads use BOTH: they appreciate art AND understand asset allocation.
 
-4. LONG-TERM MINDSET = GREAT FIT. Art is illiquid, 3-7 year holds. Language about patience, wealth preservation, estate planning, diversification = ideal customer. Language about "quick money", "fast returns", "guaranteed" = wrong asset class for them.
+4. LONG-TERM MINDSET = GREAT FIT. Art is illiquid, 3-7 year holds. Research shows comfort with illiquidity is the #1 predictor of success in alternative investments.
+   - Good: "long term", "patient", "wealth preservation", "estate planning", "time horizon"
+   - Bad: "quick money", "fast returns", "guaranteed", "flip it", "when can I sell"
 
-5. CAPITAL SIGNALS MATTER MOST. Words like "accredited", "financial advisor", "trust", "estate", "net worth", "private equity" suggest they have investable capital. Area codes from high-wealth regions reinforce this.
+5. CAPITAL SIGNALS MATTER MOST. Wealthy people say "deploy", "allocate", "optimize" — not "spend" or "afford". Words like "accredited", "financial advisor", "trust", "estate", "net worth", "due diligence", "risk-adjusted" suggest real investable capital.
 
-6. DIVERSIFIERS ARE THE BEST LEADS. Someone who already has stocks/bonds/real estate and mentions wanting to diversify or find alternatives — that's the ideal Masterworks customer.
+6. DIVERSIFIERS ARE THE BEST LEADS. Someone who already has stocks/bonds/real estate and mentions wanting to diversify or find alternatives is the ideal Masterworks customer. "My 60/40 isn't performing" or "overweight in equities" = ideal.
 
-Scoring baseline: Start at 55 (they booked a call — that's already above average). Add for positive signals, subtract only for genuine red flags.
+7. SOPHISTICATION MARKERS. Expert investors ask about downside before upside, use abstract/relational vocabulary ("correlation", "risk-adjusted returns" vs "is it safe?"), and think in portfolio context. These signals indicate someone who will invest larger amounts with more confidence.
+
+Scoring baseline: Start at 55 (they booked a call — already above average). Add for positive signals, subtract only for genuine red flags.
 - 75-100: Ready to invest. Capital signals + action intent + diversification language.
-- 60-74: Strong prospect. Good signals, personalize the conversation to their situation.
+- 60-74: Strong prospect. Good signals, personalize the conversation.
 - 45-59: Standard lead. Needs discovery — find out their situation during the call.
 - 30-44: Early stage. May need education on the asset class first.
 - Below 30: Only for genuine red flags (student, scam concern, get-rich-quick mindset).
 
 Approach guide:
-- "direct": Capital + diversification signals. Jump to available offerings, minimums, process.
-- "consultative": Good signals but needs discovery. Ask about current portfolio, goals, timeline.
-- "educational": New to art investing (most people are!). Start with how Masterworks works, then qualify.
+- "direct": Capital + diversification signals. Jump to available offerings, minimums, process. Ask "how much are you looking to allocate?"
+- "consultative": Good signals but needs discovery. Ask about current portfolio, goals, what prompted their interest.
+- "educational": New to art investing (most people are!) or art fan. Start with "how Masterworks works" and frame art as a financial asset class. Then qualify.
 - "cautious": Genuine red flags present. Be friendly but qualify budget/intent early.
 
-Your goal is to make the salesperson feel PREPARED, not to gatekeep. Help them connect with this person.`;
+Your goal is to make the salesperson feel PREPARED, not to gatekeep. Help them connect with this person. Give specific, actionable talking points based on what you know about them.`;
 
 interface ClaudeResult {
   qualification_score: number;
@@ -537,7 +575,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       Promise.resolve(analyzeEmail(input.inviteeEmail)),
       Promise.resolve(analyzePhone(input.inviteePhone)),
       analyzeBehavior(input.inviteeEmail, input.startTime, input.timezone),
-      Promise.resolve(analyzeKeywords(input.inviteeNotes)),
+      Promise.resolve(analyzeKeywords(input.inviteeNotes, input.customAnswers)),
     ]);
 
     // Compute tier 1 score — positive baseline philosophy
@@ -548,9 +586,9 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       emailAnalysis.professional_score +   // 0-30: email quality
       phoneAnalysis.wealth_score +          // 0-12: location/wealth area
       behaviorSignals.behavior_score +      // 0-16: booking behavior
-      keywordSignals.keyword_score;         // -10 to 35: keyword signals
-    // Signal boost is 0–93 positive range, scale to add up to ~45 more points
-    const scaledBoost = Math.round((Math.max(0, signalBoost) / 93) * 45);
+      keywordSignals.keyword_score;         // -10 to 38: keyword signals (+3 for detailed notes)
+    // Signal boost is 0–96 positive range, scale to add up to ~45 more points
+    const scaledBoost = Math.round((Math.max(0, signalBoost) / 96) * 45);
     // Red flag penalty (keyword_score can go negative)
     const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
     const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
