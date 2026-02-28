@@ -505,7 +505,7 @@ async function synthesizeWithClaude(
     return null;
   }
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, timeout: 30_000 }); // 30s timeout for web search
 
   const allPositiveSignals = [
     ...keywordSignals.capital_signals.map((s) => `[capital] ${s}`),
@@ -655,13 +655,13 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
     const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
 
-    // Check time budget before Claude call
+    // Check time budget before Claude call (generous — enrichment function has 60s maxDuration)
     const elapsed = Date.now() - startedAt;
     let claudeResult: ClaudeResult | null = null;
     let totalCostCents = 0;
 
-    if (elapsed < 8000) {
-      // Step 2: Claude Sonnet synthesis with web_search (runs in own function, 10s timeout)
+    if (elapsed < 25000) {
+      // Step 2: Claude Sonnet synthesis with web_search (30s API timeout)
       claudeResult = await synthesizeWithClaude(
         input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score,
       );

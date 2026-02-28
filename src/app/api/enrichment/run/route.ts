@@ -3,6 +3,7 @@ import { runEnrichmentPipeline } from "@/lib/enrichment";
 import type { EnrichmentInput } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Allow up to 60s for Claude API + web search
 
 const CRON_SECRET = process.env.CRON_SECRET || "";
 

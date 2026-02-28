@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS booking_enrichments (
   ai_model TEXT,
   ai_tokens_used INTEGER,
 
+  -- Web search / person intel
+  web_search_result JSONB,
+  person_confidence TEXT,
+
   -- Meta
   enrichment_status TEXT NOT NULL DEFAULT 'pending'
     CHECK (enrichment_status IN ('pending','processing','completed','failed')),

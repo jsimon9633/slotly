@@ -358,25 +358,28 @@ export async function POST(request: NextRequest) {
       // Non-blocking — booking is saved, just round-robin tracking is off
     }
 
-    // Send confirmation + team member alert emails (fire-and-forget — booking is saved)
-    sendBookingEmails({
-      inviteeName: cleanName,
-      inviteeEmail: cleanEmail,
-      teamMemberName: teamMember.name,
-      teamMemberEmail: teamMember.email,
-      eventTitle: eventType.title,
-      durationMinutes: eventType.duration_minutes,
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      timezone,
-      notes: cleanNotes,
-      manageToken,
-      meetLink,
-      meetPhone,
-      meetPin,
-    }).catch((emailErr) => {
+    // Send confirmation + team member alert emails (awaited — must complete before response)
+    try {
+      await sendBookingEmails({
+        inviteeName: cleanName,
+        inviteeEmail: cleanEmail,
+        teamMemberName: teamMember.name,
+        teamMemberEmail: teamMember.email,
+        eventTitle: eventType.title,
+        durationMinutes: eventType.duration_minutes,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        timezone,
+        notes: cleanNotes,
+        manageToken,
+        meetLink,
+        meetPhone,
+        meetPin,
+      });
+    } catch (emailErr) {
+      emailSent = false;
       console.error("[Booking] Email send failed:", emailErr instanceof Error ? emailErr.message : emailErr);
-    });
+    }
 
     // Execute on_booking workflows (best-effort, don't block response)
     executeInstantWorkflows(eventType.id, "on_booking", {
@@ -407,7 +410,7 @@ export async function POST(request: NextRequest) {
       timezone,
     }).catch((err) => console.error("[Booking] Webhook fire failed:", err instanceof Error ? err.message : err));
 
-    // Trigger AI enrichment pipeline (non-blocking — runs as separate function)
+    // Trigger AI enrichment pipeline (awaits insert + fetch initiation, pipeline runs in separate function)
     const enrichmentInput: EnrichmentInput = {
       bookingId: booking.id,
       inviteeName: cleanName,
@@ -423,14 +426,15 @@ export async function POST(request: NextRequest) {
       meetingType: eventType.meeting_type || null,
     };
 
-    // Create pending enrichment row (fast DB insert), then trigger pipeline
-    Promise.resolve(
-      supabaseAdmin.from("booking_enrichments").insert({
+    // Create pending enrichment row (awaited to ensure it exists before triggering pipeline)
+    try {
+      await supabaseAdmin.from("booking_enrichments").insert({
         booking_id: booking.id,
         enrichment_status: "pending",
-      })
-    ).then(() => {
+      });
+
       // Trigger enrichment processing via separate function invocation
+      // Fire-and-forget the response, but ensure the HTTP request is initiated before returning
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
       const cronSecret = process.env.CRON_SECRET;
       if (siteUrl && cronSecret) {
@@ -442,8 +446,12 @@ export async function POST(request: NextRequest) {
           },
           body: JSON.stringify(enrichmentInput),
         }).catch((err: unknown) => console.error("[Booking] Enrichment trigger failed:", err));
+      } else {
+        console.warn("[Booking] Enrichment skipped — NEXT_PUBLIC_SITE_URL or CRON_SECRET not set");
       }
-    }).catch((err: unknown) => console.error("[Booking] Enrichment row insert failed:", err));
+    } catch (err: unknown) {
+      console.error("[Booking] Enrichment row insert failed:", err);
+    }
 
     // Return confirmation with partial failure warnings
     return successWithWarnings(
