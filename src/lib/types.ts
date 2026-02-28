@@ -136,3 +136,73 @@ export interface TimeSlot {
   available_member_ids?: string[];
   label?: "popular" | "recommended";
 }
+
+// ─── AI Meeting Prep Enrichment ─────────────────────────
+
+export interface BookingEnrichment {
+  id: string;
+  booking_id: string;
+  email_analysis: EmailAnalysis | null;
+  phone_analysis: PhoneAnalysis | null;
+  behavior_signals: BehaviorSignals | null;
+  keyword_signals: KeywordSignals | null;
+  tier1_score: number | null;
+  ai_summary: string | null;
+  ai_qualification_score: number | null;
+  ai_talking_points: string[] | null;
+  ai_risk_flags: string[] | null;
+  ai_recommended_approach: "consultative" | "direct" | "educational" | "cautious" | null;
+  ai_model: string | null;
+  ai_tokens_used: number | null;
+  enrichment_status: "pending" | "processing" | "completed" | "failed";
+  total_cost_cents: number;
+  error_message: string | null;
+  prep_email_sent_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface EmailAnalysis {
+  domain: string;
+  is_personal: boolean;
+  company_inference: string | null;
+  handle_pattern: "firstname.lastname" | "firstname" | "initials" | "username" | "other";
+  professional_score: number;
+}
+
+export interface PhoneAnalysis {
+  country_code: string;
+  area_code: string | null;
+  geo_inference: string | null;
+  wealth_indicator: "high" | "moderate" | "neutral";
+  wealth_score: number;
+}
+
+export interface BehaviorSignals {
+  booking_hour_local: number;
+  booking_day: string;
+  lead_time_hours: number;
+  is_repeat_booker: boolean;
+  prior_bookings_count: number;
+  behavior_score: number;
+}
+
+export interface KeywordSignals {
+  investment_keywords: string[];
+  negative_keywords: string[];
+  keyword_score: number;
+}
+
+export interface EnrichmentInput {
+  bookingId: string;
+  inviteeName: string;
+  inviteeEmail: string;
+  inviteePhone: string | null;
+  inviteeNotes: string | null;
+  customAnswers: Record<string, any> | null;
+  startTime: string;
+  timezone: string;
+  eventTitle: string;
+  teamMemberName: string;
+  teamMemberEmail: string;
+}
