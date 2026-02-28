@@ -426,26 +426,35 @@ export async function POST(request: NextRequest) {
       meetingType: eventType.meeting_type || null,
     };
 
-    // Create pending enrichment row (awaited to ensure it exists before triggering pipeline)
+    // Create pending enrichment row + trigger pipeline
+    // Await the fetch with a short timeout to ensure the HTTP request reaches Netlify
+    // before the booking Lambda returns. The enrichment function runs independently.
     try {
       await supabaseAdmin.from("booking_enrichments").insert({
         booking_id: booking.id,
         enrichment_status: "pending",
       });
 
-      // Trigger enrichment processing via separate function invocation
-      // Fire-and-forget the response, but ensure the HTTP request is initiated before returning
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
       const cronSecret = process.env.CRON_SECRET;
       if (siteUrl && cronSecret) {
-        fetch(`${siteUrl}/api/enrichment/run`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${cronSecret}`,
-          },
-          body: JSON.stringify(enrichmentInput),
-        }).catch((err: unknown) => console.error("[Booking] Enrichment trigger failed:", err));
+        const enrichAbort = new AbortController();
+        const enrichTimer = setTimeout(() => enrichAbort.abort(), 2000);
+        try {
+          await fetch(`${siteUrl}/api/enrichment/run`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${cronSecret}`,
+            },
+            body: JSON.stringify(enrichmentInput),
+            signal: enrichAbort.signal,
+          });
+        } catch {
+          // AbortError expected (enrichment takes >2s) — request already sent to Netlify
+        } finally {
+          clearTimeout(enrichTimer);
+        }
       } else {
         console.warn("[Booking] Enrichment skipped — NEXT_PUBLIC_SITE_URL or CRON_SECRET not set");
       }

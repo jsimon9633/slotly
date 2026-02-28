@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS booking_enrichments (
 
   -- Meta
   enrichment_status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (enrichment_status IN ('pending','processing','completed','failed')),
+    CHECK (enrichment_status IN ('pending','processing','signals_complete','completed','failed')),
   total_cost_cents INTEGER DEFAULT 0,
   error_message TEXT,
   prep_email_sent_at TIMESTAMPTZ,

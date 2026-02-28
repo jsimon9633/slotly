@@ -655,28 +655,12 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
     const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
 
-    // Check time budget before Claude call (generous — enrichment function has 60s maxDuration)
-    const elapsed = Date.now() - startedAt;
-    let claudeResult: ClaudeResult | null = null;
-    let totalCostCents = 0;
+    // ── Step 2: Save signal results + send email FIRST (must complete within 10s timeout) ──
+    // Send email with signal-only data immediately. If Claude enhances later, the DB
+    // row gets updated but the email already went out — better than no email at all.
 
-    if (elapsed < 25000) {
-      // Step 2: Claude Sonnet synthesis with web_search (30s API timeout)
-      claudeResult = await synthesizeWithClaude(
-        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score,
-      );
-
-      if (claudeResult) {
-        // Estimate cost: Sonnet ~$3/MTok input, ~$15/MTok output + web search
-        // Rough: ~1500 tokens avg * $3/1M input + ~500 tokens * $15/1M output ≈ $0.012
-        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
-      }
-    } else {
-      console.warn(`[Enrichment] Skipping Claude — ${elapsed}ms elapsed, approaching timeout`);
-    }
-
-    // Save results
-    const { error: updateErr } = await supabaseAdmin
+    // Save signal results (without Claude data)
+    const { error: signalSaveErr } = await supabaseAdmin
       .from("booking_enrichments")
       .update({
         email_analysis: emailAnalysis,
@@ -684,6 +668,57 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
         behavior_signals: behaviorSignals,
         keyword_signals: keywordSignals,
         tier1_score: tier1Score,
+        enrichment_status: "signals_complete",
+      })
+      .eq("id", enrichmentId);
+
+    if (signalSaveErr) {
+      console.error("[Enrichment] Failed to save signal results:", signalSaveErr.message);
+    }
+
+    // Send meeting prep email with signal analysis (no AI yet — that comes later)
+    try {
+      await sendMeetingPrepEmail({
+        input,
+        emailAnalysis,
+        phoneAnalysis,
+        behaviorSignals,
+        keywordSignals,
+        tier1Score,
+        claudeResult: null, // AI not ready yet — signal-only email
+      });
+
+      await supabaseAdmin
+        .from("booking_enrichments")
+        .update({ prep_email_sent_at: new Date().toISOString() })
+        .eq("id", enrichmentId);
+
+      console.log(`[Enrichment] Signal-only prep email sent for booking ${input.bookingId} — tier1=${tier1Score}, ${Date.now() - startedAt}ms`);
+    } catch (emailErr) {
+      console.error("[Enrichment] Prep email failed:", emailErr instanceof Error ? emailErr.message : emailErr);
+    }
+
+    // ── Step 3: Claude AI synthesis (optional, runs if time allows) ──
+    const elapsed = Date.now() - startedAt;
+    let claudeResult: ClaudeResult | null = null;
+    let totalCostCents = 0;
+
+    if (elapsed < 25000) {
+      claudeResult = await synthesizeWithClaude(
+        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score,
+      );
+
+      if (claudeResult) {
+        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
+      }
+    } else {
+      console.warn(`[Enrichment] Skipping Claude — ${elapsed}ms elapsed, approaching timeout`);
+    }
+
+    // Save final results (including Claude data if available)
+    const { error: updateErr } = await supabaseAdmin
+      .from("booking_enrichments")
+      .update({
         ai_summary: claudeResult?.summary || null,
         ai_qualification_score: claudeResult?.qualification_score || null,
         ai_talking_points: claudeResult?.talking_points || null,
@@ -700,28 +735,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       .eq("id", enrichmentId);
 
     if (updateErr) {
-      console.error("[Enrichment] Failed to update enrichment row:", updateErr.message);
-    }
-
-    // Send meeting prep email
-    try {
-      await sendMeetingPrepEmail({
-        input,
-        emailAnalysis,
-        phoneAnalysis,
-        behaviorSignals,
-        keywordSignals,
-        tier1Score,
-        claudeResult,
-      });
-
-      // Mark email as sent
-      await supabaseAdmin
-        .from("booking_enrichments")
-        .update({ prep_email_sent_at: new Date().toISOString() })
-        .eq("id", enrichmentId);
-    } catch (emailErr) {
-      console.error("[Enrichment] Prep email failed:", emailErr instanceof Error ? emailErr.message : emailErr);
+      console.error("[Enrichment] Failed to save Claude results:", updateErr.message);
     }
 
     console.log(
