@@ -30,6 +30,7 @@ import {
   FileText,
 } from "lucide-react";
 import Link from "next/link";
+import { MEETING_TYPE_OPTIONS } from "@/lib/meeting-type-questions";
 
 interface BookingQuestion {
   id: string;
@@ -54,6 +55,7 @@ interface EventTypeSettings {
   max_daily_bookings: number | null;
   max_advance_days: number;
   booking_questions?: BookingQuestion[];
+  meeting_type?: string | null;
 }
 
 // Track pending edits per event type
@@ -248,6 +250,30 @@ export default function AdminSettingsPage() {
       } else {
         const data = await res.json();
         setError(data.error || "Failed to toggle lock.");
+      }
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleUpdateMeetingType = async (etId: string, meetingType: string | null) => {
+    setSavingId(etId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/event-types?token=${encodeURIComponent(token)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: etId, meeting_type: meetingType }),
+      });
+      if (res.ok) {
+        setSavedId(etId);
+        setTimeout(() => setSavedId(null), 2500);
+        fetchEventTypes();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to update meeting type.");
       }
     } catch {
       setError("Something went wrong.");
@@ -888,6 +914,29 @@ export default function AdminSettingsPage() {
                       <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
                   )}
+                </div>
+
+                {/* Meeting Type */}
+                <div className="px-5 sm:px-6 pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <ListChecks className="w-3.5 h-3.5 text-gray-400" />
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Meeting Type</span>
+                    </div>
+                    <select
+                      value={et.meeting_type || ""}
+                      onChange={(e) => handleUpdateMeetingType(et.id, e.target.value || null)}
+                      disabled={savingId === et.id}
+                      className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                    >
+                      <option value="">None (default questions)</option>
+                      {MEETING_TYPE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {/* Settings grid */}

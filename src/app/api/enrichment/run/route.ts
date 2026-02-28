@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     eventTitle,
     teamMemberName,
     teamMemberEmail,
+    meetingType,
   } = body;
 
   if (!bookingId || !inviteeName || !inviteeEmail || !startTime || !timezone || !eventTitle) {
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
     eventTitle,
     teamMemberName: teamMemberName || "",
     teamMemberEmail: teamMemberEmail || "",
+    meetingType: meetingType || null,
   };
 
   // Run pipeline (non-blocking — respond immediately, process in background)

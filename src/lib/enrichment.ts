@@ -394,17 +394,38 @@ export function analyzeKeywords(
 
 // ─── Claude AI Synthesis ────────────────────────────────
 
+// Meeting type descriptions for Claude context
+const MEETING_TYPE_CONTEXT: Record<string, string> = {
+  initial_consultation: "First-time prospect. Discovery call. Focus on: what's their portfolio, capital signals, what brought them here.",
+  portfolio_review: "EXISTING INVESTOR. They own art through Masterworks. Focus on: satisfaction, upsell, new offerings. Don't explain basics.",
+  follow_up: "Had a prior call, didn't invest yet. Rebooking = very strong signal. Focus on: what changed, what held them back.",
+  missed_follow_up: "No-showed first call but rebooked. Still interested. Be empathetic. Slightly higher no-show risk.",
+  event_follow_up: "Attended a Masterworks event. Have brand context. Reference event themes.",
+};
+
 const SYSTEM_PROMPT = `You are a meeting prep analyst for Masterworks, a platform for fractional art investing ($10k minimum, accredited investors, 3-7 year hold periods).
 
 A potential investor has booked a meeting. The act of scheduling a call is ALREADY a strong positive signal — they took action. Your job is to help the salesperson UNDERSTAND this person and have a great conversation, not to judge or disqualify them.
 
-Respond ONLY with valid JSON in this exact format:
+IMPORTANT: You have access to a web_search tool. USE IT to research the person before writing your analysis. Search for their name combined with their company/email domain to find LinkedIn profiles, professional background, and any public info. This is critical — your analysis should combine what the person wrote on the form WITH what you find online about them.
+
+Search strategy:
+1. If corporate email: search for "{name}" "{company/email domain}"
+2. If personal email with location data: search for "{name}" "{city}" plus any context clues from their notes
+3. Try to find their LinkedIn profile, current role, and company
+4. Assess your confidence in the match: "high" (LinkedIn confirmed), "medium" (likely match from professional results), "low" (uncertain/common name), "none" (nothing found)
+
+After searching, respond ONLY with valid JSON in this exact format:
 {
   "qualification_score": <number 0-100>,
   "summary": "<2-3 sentences about who this person likely is — their situation, what brought them here, what they might care about>",
   "talking_points": ["<conversation starter or angle 1>", "<point 2>", "<point 3>"],
   "risk_flags": ["<only genuine concerns, if any — leave empty array if none>"],
-  "recommended_approach": "<one of: direct, consultative, educational, cautious>"
+  "recommended_approach": "<one of: direct, consultative, educational, cautious>",
+  "person_profile": "<what you found about them online — title, company, background. null if nothing found>",
+  "person_confidence": "<high, medium, low, or none>",
+  "search_queries_used": ["<query 1>", "<query 2 if used>"],
+  "linkedin_url": "<LinkedIn URL if found, null otherwise>"
 }
 
 CRITICAL CONTEXT — what we know about real Masterworks investors:
@@ -441,7 +462,21 @@ Approach guide:
 - "educational": New to art investing (most people are!) or art fan. Start with "how Masterworks works" and frame art as a financial asset class. Then qualify.
 - "cautious": Genuine red flags present. Be friendly but qualify budget/intent early.
 
-Your goal is to make the salesperson feel PREPARED, not to gatekeep. Help them connect with this person. Give specific, actionable talking points based on what you know about them.`;
+MEETING TYPE CONTEXT (adjust your analysis based on which type this is):
+- "initial_consultation": First-time prospect. Discovery call. Focus on: what's their portfolio, capital signals, what brought them here.
+- "portfolio_review": EXISTING INVESTOR. They own art through Masterworks. Focus on: satisfaction, upsell, new offerings. Don't explain basics.
+- "follow_up": Had a prior call, didn't invest yet. Rebooking = very strong signal. Focus on: what changed, what held them back.
+- "missed_follow_up": No-showed first call but rebooked. Still interested. Be empathetic. Slightly higher no-show risk.
+- "event_follow_up": Attended a Masterworks event. Have brand context. Reference event themes.
+
+Your goal is to make the salesperson feel PREPARED, not to gatekeep. Help them connect with this person. Give specific, actionable talking points based on what you know about them — ESPECIALLY from what you found online.`;
+
+interface WebSearchResult {
+  person_profile: string | null;
+  person_confidence: "high" | "medium" | "low" | "none";
+  search_queries_used: string[];
+  linkedin_url: string | null;
+}
 
 interface ClaudeResult {
   qualification_score: number;
@@ -449,6 +484,9 @@ interface ClaudeResult {
   talking_points: string[];
   risk_flags: string[];
   recommended_approach: string;
+  person_profile: string | null;
+  person_confidence: "high" | "medium" | "low" | "none";
+  web_search_result: WebSearchResult | null;
   model: string;
   tokens_used: number;
 }
@@ -476,16 +514,22 @@ async function synthesizeWithClaude(
     ...keywordSignals.long_term_signals.map((s) => `[long-term] ${s}`),
   ];
 
+  // Meeting type context
+  const meetingTypeDesc = input.meetingType && MEETING_TYPE_CONTEXT[input.meetingType]
+    ? `${input.meetingType} (${MEETING_TYPE_CONTEXT[input.meetingType]})`
+    : "initial_consultation (First-time prospect — discovery call)";
+
   const userMessage = `Meeting booked for: ${input.eventTitle}
+Meeting type: ${meetingTypeDesc}
 Scheduled: ${input.startTime}
 Lead time: ${behaviorSignals.lead_time_hours} hours from now
 
-PERSON:
+PERSON (search for them online before writing your analysis):
 Name: ${input.inviteeName}
 Email: ${input.inviteeEmail}
 Phone: ${input.inviteePhone || "Not provided"}
 
-WHAT WE KNOW:
+WHAT WE KNOW FROM SIGNALS:
 - Email: ${emailAnalysis.domain} (${emailAnalysis.is_personal ? "personal — investing for themselves" : "corporate"})${emailAnalysis.company_inference ? `, likely company: ${emailAnalysis.company_inference}` : ""}
 - Email handle: ${emailAnalysis.handle_pattern}
 - Location signal: ${phoneAnalysis.geo_inference || "unknown"} (${phoneAnalysis.wealth_indicator} wealth area)${phoneAnalysis.area_code ? `, area code ${phoneAnalysis.area_code}` : ""}
@@ -497,14 +541,17 @@ ${keywordSignals.red_flags.length > 0 ? `- Red flags: ${keywordSignals.red_flags
 THEIR NOTES/TOPIC: ${input.inviteeNotes || "None provided"}
 ${input.customAnswers ? `\nFORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
 
-SIGNAL SCORE: ${tier1Score}/100`;
+SIGNAL SCORE: ${tier1Score}/100
+
+IMPORTANT: Use web_search to research this person BEFORE writing your JSON response. Search for their name + company/domain to find their LinkedIn, role, and background. This info is critical for the salesperson.`;
 
   try {
-    const model = "claude-haiku-4-5-20251001";
+    const model = "claude-sonnet-4-5-20250514";
     const response = await client.messages.create({
       model,
-      max_tokens: 500,
+      max_tokens: 800,
       system: SYSTEM_PROMPT,
+      tools: [{ type: "web_search_20250305" as any, name: "web_search", max_uses: 3 }],
       messages: [{ role: "user", content: userMessage }],
     });
 
@@ -525,6 +572,9 @@ SIGNAL SCORE: ${tier1Score}/100`;
         talking_points: [],
         risk_flags: ["AI response parsing failed — using signal score only"],
         recommended_approach: "consultative",
+        person_profile: null,
+        person_confidence: "none",
+        web_search_result: null,
         model,
         tokens_used: tokensUsed,
       };
@@ -532,12 +582,25 @@ SIGNAL SCORE: ${tier1Score}/100`;
 
     const parsed = JSON.parse(jsonMatch[0]);
 
+    // Build web search result object
+    const webSearchResult: WebSearchResult | null = parsed.person_profile || parsed.linkedin_url
+      ? {
+          person_profile: parsed.person_profile || null,
+          person_confidence: (["high", "medium", "low", "none"].includes(parsed.person_confidence) ? parsed.person_confidence : "none") as WebSearchResult["person_confidence"],
+          search_queries_used: Array.isArray(parsed.search_queries_used) ? parsed.search_queries_used : [],
+          linkedin_url: parsed.linkedin_url || null,
+        }
+      : null;
+
     return {
       qualification_score: Math.min(100, Math.max(0, parsed.qualification_score || 0)),
       summary: parsed.summary || "",
       talking_points: Array.isArray(parsed.talking_points) ? parsed.talking_points : [],
       risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags : [],
       recommended_approach: parsed.recommended_approach || "consultative",
+      person_profile: parsed.person_profile || null,
+      person_confidence: (["high", "medium", "low", "none"].includes(parsed.person_confidence) ? parsed.person_confidence : "none") as ClaudeResult["person_confidence"],
+      web_search_result: webSearchResult,
       model,
       tokens_used: tokensUsed,
     };
@@ -552,22 +615,39 @@ SIGNAL SCORE: ${tier1Score}/100`;
 export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<void> {
   const startedAt = Date.now();
 
-  // Create enrichment row
-  const { data: enrichment, error: insertErr } = await supabaseAdmin
+  // Check for pre-existing "pending" row (created by non-blocking book route)
+  let enrichmentId: string;
+  const { data: existing } = await supabaseAdmin
     .from("booking_enrichments")
-    .insert({
-      booking_id: input.bookingId,
-      enrichment_status: "processing",
-    })
     .select("id")
-    .single();
+    .eq("booking_id", input.bookingId)
+    .in("enrichment_status", ["pending", "processing"])
+    .maybeSingle();
 
-  if (insertErr || !enrichment) {
-    console.error("[Enrichment] Failed to create enrichment row:", insertErr?.message);
-    return;
+  if (existing) {
+    // Transition pending → processing
+    enrichmentId = existing.id;
+    await supabaseAdmin
+      .from("booking_enrichments")
+      .update({ enrichment_status: "processing" })
+      .eq("id", enrichmentId);
+  } else {
+    // Create new enrichment row
+    const { data: enrichment, error: insertErr } = await supabaseAdmin
+      .from("booking_enrichments")
+      .insert({
+        booking_id: input.bookingId,
+        enrichment_status: "processing",
+      })
+      .select("id")
+      .single();
+
+    if (insertErr || !enrichment) {
+      console.error("[Enrichment] Failed to create enrichment row:", insertErr?.message);
+      return;
+    }
+    enrichmentId = enrichment.id;
   }
-
-  const enrichmentId = enrichment.id;
 
   try {
     // Step 1: Signal analysis (parallel, free)
@@ -598,16 +678,16 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     let claudeResult: ClaudeResult | null = null;
     let totalCostCents = 0;
 
-    if (elapsed < 6000) {
-      // Step 2: Claude synthesis
+    if (elapsed < 4000) {
+      // Step 2: Claude Sonnet synthesis with web_search
       claudeResult = await synthesizeWithClaude(
         input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score,
       );
 
       if (claudeResult) {
-        // Estimate cost: Haiku ~$0.25/MTok input, ~$1.25/MTok output
-        // Rough: 1000 tokens * $0.25/1M = $0.00025, round up
-        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 0.15));
+        // Estimate cost: Sonnet ~$3/MTok input, ~$15/MTok output + web search
+        // Rough: ~1500 tokens avg * $3/1M input + ~500 tokens * $15/1M output ≈ $0.012
+        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
       }
     } else {
       console.warn(`[Enrichment] Skipping Claude — ${elapsed}ms elapsed, approaching timeout`);
@@ -629,6 +709,8 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
         ai_recommended_approach: claudeResult?.recommended_approach || null,
         ai_model: claudeResult?.model || null,
         ai_tokens_used: claudeResult?.tokens_used || null,
+        web_search_result: claudeResult?.web_search_result || null,
+        person_confidence: claudeResult?.person_confidence || null,
         enrichment_status: "completed",
         total_cost_cents: totalCostCents,
         completed_at: new Date().toISOString(),
@@ -638,12 +720,6 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     if (updateErr) {
       console.error("[Enrichment] Failed to update enrichment row:", updateErr.message);
     }
-
-    // Update booking status
-    await supabaseAdmin
-      .from("bookings")
-      .update({ enrichment_status: "completed" })
-      .eq("id", input.bookingId);
 
     // Send meeting prep email
     try {
@@ -669,6 +745,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     console.log(
       `[Enrichment] Completed for booking ${input.bookingId} — ` +
       `tier1=${tier1Score}, ai=${claudeResult?.qualification_score ?? "skipped"}, ` +
+      `person=${claudeResult?.person_confidence ?? "none"}, ` +
       `cost=${totalCostCents}¢, ${Date.now() - startedAt}ms`
     );
   } catch (err) {
@@ -680,11 +757,6 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
         error_message: err instanceof Error ? err.message : String(err),
       })
       .eq("id", enrichmentId);
-
-    await supabaseAdmin
-      .from("bookings")
-      .update({ enrichment_status: "failed" })
-      .eq("id", input.bookingId);
 
     console.error("[Enrichment] Pipeline failed for booking", input.bookingId, ":", err);
   }

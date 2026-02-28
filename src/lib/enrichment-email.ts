@@ -24,6 +24,14 @@ interface ClaudeResult {
   talking_points: string[];
   risk_flags: string[];
   recommended_approach: string;
+  person_profile: string | null;
+  person_confidence: "high" | "medium" | "low" | "none";
+  web_search_result: {
+    person_profile: string | null;
+    person_confidence: "high" | "medium" | "low" | "none";
+    search_queries_used: string[];
+    linkedin_url: string | null;
+  } | null;
 }
 
 interface MeetingPrepEmailData {
@@ -82,6 +90,15 @@ function getApproachDescription(approach: string): string {
       return "Be friendly but efficiently qualify budget and accreditation early in the call.";
     default:
       return "";
+  }
+}
+
+function getConfidenceBadge(confidence: string): { label: string; color: string; bgColor: string } {
+  switch (confidence) {
+    case "high": return { label: "High confidence match", color: "#065f46", bgColor: "#d1fae5" };
+    case "medium": return { label: "Possible match", color: "#92400e", bgColor: "#fef3c7" };
+    case "low": return { label: "Uncertain match", color: "#6b7280", bgColor: "#f3f4f6" };
+    default: return { label: "No results found", color: "#6b7280", bgColor: "#f3f4f6" };
   }
 }
 
@@ -185,6 +202,38 @@ function buildMeetingPrepEmail(data: MeetingPrepEmailData): { subject: string; h
       </tr>
     </table>
     ` : ""}
+
+    ${claudeResult?.person_profile ? (() => {
+      const confidence = claudeResult.person_confidence || "none";
+      const confBadge = getConfidenceBadge(confidence);
+      const linkedinUrl = claudeResult.web_search_result?.linkedin_url;
+      return `
+    <!-- Person Intel -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid #059669;">
+      <tr>
+        <td>
+          <table cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-size:13px;font-weight:600;color:#059669;">Person Intel</td>
+              <td style="padding-left:10px;">
+                <span style="background:${confBadge.bgColor};border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;color:${confBadge.color};">${confBadge.label}</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="font-size:14px;color:#374151;line-height:1.5;padding-top:8px;">${escapeHtml(claudeResult.person_profile)}</td>
+      </tr>
+      ${linkedinUrl ? `
+      <tr>
+        <td style="padding-top:8px;">
+          <a href="${escapeHtml(linkedinUrl)}" style="font-size:13px;color:#0077b5;text-decoration:none;font-weight:600;">View LinkedIn Profile &rarr;</a>
+        </td>
+      </tr>` : ""}
+    </table>
+    `;
+    })() : ""}
 
     <!-- Talking Points -->
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">

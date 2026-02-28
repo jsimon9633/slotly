@@ -19,7 +19,6 @@ import {
 } from "@/lib/api-errors";
 import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
 import { executeInstantWorkflows } from "@/lib/workflows";
-import { runEnrichmentPipeline } from "@/lib/enrichment";
 import type { EnrichmentInput } from "@/lib/types";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
@@ -150,7 +149,7 @@ export async function POST(request: NextRequest) {
     // Get event type
     const { data: eventType, error: etError } = await supabaseAdmin
       .from("event_types")
-      .select("id, title, duration_minutes, max_daily_bookings, team_id, booking_questions")
+      .select("id, title, duration_minutes, max_daily_bookings, team_id, booking_questions, meeting_type")
       .eq("slug", eventTypeSlug)
       .eq("is_active", true)
       .single();
@@ -359,28 +358,25 @@ export async function POST(request: NextRequest) {
       // Non-blocking — booking is saved, just round-robin tracking is off
     }
 
-    // Send confirmation + team member alert emails
-    try {
-      await sendBookingEmails({
-        inviteeName: cleanName,
-        inviteeEmail: cleanEmail,
-        teamMemberName: teamMember.name,
-        teamMemberEmail: teamMember.email,
-        eventTitle: eventType.title,
-        durationMinutes: eventType.duration_minutes,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-        timezone,
-        notes: cleanNotes,
-        manageToken,
-        meetLink,
-        meetPhone,
-        meetPin,
-      });
-    } catch (emailErr) {
-      emailSent = false;
+    // Send confirmation + team member alert emails (fire-and-forget — booking is saved)
+    sendBookingEmails({
+      inviteeName: cleanName,
+      inviteeEmail: cleanEmail,
+      teamMemberName: teamMember.name,
+      teamMemberEmail: teamMember.email,
+      eventTitle: eventType.title,
+      durationMinutes: eventType.duration_minutes,
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      timezone,
+      notes: cleanNotes,
+      manageToken,
+      meetLink,
+      meetPhone,
+      meetPin,
+    }).catch((emailErr) => {
       console.error("[Booking] Email send failed:", emailErr instanceof Error ? emailErr.message : emailErr);
-    }
+    });
 
     // Execute on_booking workflows (best-effort, don't block response)
     executeInstantWorkflows(eventType.id, "on_booking", {
@@ -411,25 +407,43 @@ export async function POST(request: NextRequest) {
       timezone,
     }).catch((err) => console.error("[Booking] Webhook fire failed:", err instanceof Error ? err.message : err));
 
-    // Trigger AI enrichment pipeline (runs inline to avoid serverless freeze issues)
-    try {
-      const enrichmentInput: EnrichmentInput = {
-        bookingId: booking.id,
-        inviteeName: cleanName,
-        inviteeEmail: cleanEmail,
-        inviteePhone: cleanPhone,
-        inviteeNotes: cleanNotes,
-        customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
-        startTime: start.toISOString(),
-        timezone,
-        eventTitle: eventType.title,
-        teamMemberName: teamMember.name,
-        teamMemberEmail: teamMember.email,
-      };
-      await runEnrichmentPipeline(enrichmentInput);
-    } catch (enrichErr) {
-      console.error("[Booking] Enrichment pipeline failed:", enrichErr instanceof Error ? enrichErr.message : enrichErr);
-    }
+    // Trigger AI enrichment pipeline (non-blocking — runs as separate function)
+    const enrichmentInput: EnrichmentInput = {
+      bookingId: booking.id,
+      inviteeName: cleanName,
+      inviteeEmail: cleanEmail,
+      inviteePhone: cleanPhone,
+      inviteeNotes: cleanNotes,
+      customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
+      startTime: start.toISOString(),
+      timezone,
+      eventTitle: eventType.title,
+      teamMemberName: teamMember.name,
+      teamMemberEmail: teamMember.email,
+      meetingType: eventType.meeting_type || null,
+    };
+
+    // Create pending enrichment row (fast DB insert), then trigger pipeline
+    Promise.resolve(
+      supabaseAdmin.from("booking_enrichments").insert({
+        booking_id: booking.id,
+        enrichment_status: "pending",
+      })
+    ).then(() => {
+      // Trigger enrichment processing via separate function invocation
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+      const cronSecret = process.env.CRON_SECRET;
+      if (siteUrl && cronSecret) {
+        fetch(`${siteUrl}/api/enrichment/run`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${cronSecret}`,
+          },
+          body: JSON.stringify(enrichmentInput),
+        }).catch((err: unknown) => console.error("[Booking] Enrichment trigger failed:", err));
+      }
+    }).catch((err: unknown) => console.error("[Booking] Enrichment row insert failed:", err));
 
     // Return confirmation with partial failure warnings
     return successWithWarnings(

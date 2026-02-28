@@ -56,6 +56,7 @@ export interface EventType {
   max_advance_days: number;
   team_id: string;
   booking_questions?: BookingQuestion[];
+  meeting_type?: string | null;
 }
 
 export interface Webhook {
@@ -157,6 +158,8 @@ export interface BookingEnrichment {
   enrichment_status: "pending" | "processing" | "completed" | "failed";
   total_cost_cents: number;
   error_message: string | null;
+  web_search_result: Record<string, any> | null;
+  person_confidence: "high" | "medium" | "low" | "none" | null;
   prep_email_sent_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -208,4 +211,5 @@ export interface EnrichmentInput {
   eventTitle: string;
   teamMemberName: string;
   teamMemberEmail: string;
+  meetingType?: string | null;
 }

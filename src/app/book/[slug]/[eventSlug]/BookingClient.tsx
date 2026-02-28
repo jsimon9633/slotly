@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { EventType, TimeSlot, SiteSettings, TeamMemberInfo } from "@/lib/types";
+import { getQuestionsForMeetingType } from "@/lib/meeting-type-questions";
 
 type Step = "date" | "time" | "form" | "confirmed";
 
@@ -105,27 +106,8 @@ function detectCountryFromTimezone(tz: string): string {
   return tzCountryMap[tz] || "US";
 }
 
-// "What brings you here?" chips — each feeds into enrichment keyword analysis
-// "What brings you here?" chips
-const TOPIC_SUGGESTIONS = [
-  "Diversify my portfolio",
-  "Learn about art investing",
-  "See what's available",
-  "Explore alternatives to stocks",
-  "Referred by someone",
-  "Just curious",
-];
-
-// "Anything you'd like us to know?" starters — tap to pre-fill, can edit after
-// Research: most people struggle to write from scratch, but tapping a starter
-// gives the enrichment pipeline more signal AND reduces form friction
-const NOTES_STARTERS = [
-  "I currently invest in stocks and bonds",
-  "Looking for long-term investments",
-  "My financial advisor suggested alternatives",
-  "I have questions about the minimum",
-  "Interested in how returns work",
-];
+// Topic chips + notes starters are now dynamic per meeting type.
+// See src/lib/meeting-type-questions.ts for all 5 meeting type configs.
 
 // Common timezones grouped by region
 const COMMON_TIMEZONES = [
@@ -226,6 +208,12 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
 
   // Dynamic booking questions from event type config
   const bookingQuestions = eventType.booking_questions || [];
+
+  // Meeting-type-specific topic chips and notes starters
+  const { topicChips, notesStarters, topicLabel, notesLabel } = useMemo(
+    () => getQuestionsForMeetingType(eventType.meeting_type),
+    [eventType.meeting_type],
+  );
 
   // Close country picker on click outside
   useEffect(() => {
@@ -1073,10 +1061,10 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
               {/* What brings you here? */}
               <div className="animate-fade-in-up relative" style={{ animationDelay: "0.18s" }}>
                 <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                  What brings you here?
+                  {topicLabel}
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {TOPIC_SUGGESTIONS.map((t) => (
+                  {topicChips.map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -1095,7 +1083,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
 
               <div className="animate-fade-in-up" style={{ animationDelay: "0.24s" }}>
                 <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                  Anything you&apos;d like us to know? <span className="text-gray-400 font-normal">(optional)</span>
+                  {notesLabel} <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
                 <input
                   ref={notesInputRef}
@@ -1107,7 +1095,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
                 />
                 {!notes && (
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {NOTES_STARTERS.map((s) => (
+                    {notesStarters.map((s) => (
                       <button
                         key={s}
                         type="button"
