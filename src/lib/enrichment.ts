@@ -498,6 +498,7 @@ async function synthesizeWithClaude(
   behaviorSignals: BehaviorSignals,
   keywordSignals: KeywordSignals,
   tier1Score: number,
+  useWebSearch: boolean,
 ): Promise<ClaudeResult | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -505,7 +506,8 @@ async function synthesizeWithClaude(
     return null;
   }
 
-  const client = new Anthropic({ apiKey, timeout: 30_000 }); // 30s timeout for web search
+  const timeout = useWebSearch ? 25_000 : 8_000;
+  const client = new Anthropic({ apiKey, timeout });
 
   const allPositiveSignals = [
     ...keywordSignals.capital_signals.map((s) => `[capital] ${s}`),
@@ -519,12 +521,16 @@ async function synthesizeWithClaude(
     ? `${input.meetingType} (${MEETING_TYPE_CONTEXT[input.meetingType]})`
     : "initial_consultation (First-time prospect — discovery call)";
 
+  const searchInstructions = useWebSearch
+    ? `\n\nIMPORTANT: Use web_search to research this person BEFORE writing your JSON response. Search for their name + company/domain to find their LinkedIn, role, and background. This info is critical for the salesperson.`
+    : `\n\nNOTE: Web search is not available for this request. Base your analysis on the signal data and form answers provided. Set person_profile to null and person_confidence to "none".`;
+
   const userMessage = `Meeting booked for: ${input.eventTitle}
 Meeting type: ${meetingTypeDesc}
 Scheduled: ${input.startTime}
 Lead time: ${behaviorSignals.lead_time_hours} hours from now
 
-PERSON (search for them online before writing your analysis):
+PERSON${useWebSearch ? " (search for them online before writing your analysis)" : ""}:
 Name: ${input.inviteeName}
 Email: ${input.inviteeEmail}
 Phone: ${input.inviteePhone || "Not provided"}
@@ -541,17 +547,21 @@ ${keywordSignals.red_flags.length > 0 ? `- Red flags: ${keywordSignals.red_flags
 THEIR NOTES/TOPIC: ${input.inviteeNotes || "None provided"}
 ${input.customAnswers ? `\nFORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
 
-SIGNAL SCORE: ${tier1Score}/100
-
-IMPORTANT: Use web_search to research this person BEFORE writing your JSON response. Search for their name + company/domain to find their LinkedIn, role, and background. This info is critical for the salesperson.`;
+SIGNAL SCORE: ${tier1Score}/100${searchInstructions}`;
 
   try {
-    const model = "claude-sonnet-4-5-20250514";
+    const model = useWebSearch ? "claude-sonnet-4-5-20250514" : "claude-haiku-4-5-20241022";
+
+    // Build tools array only when web search is enabled
+    const tools = useWebSearch
+      ? [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 }]
+      : undefined;
+
     const response = await client.messages.create({
       model,
       max_tokens: 800,
       system: SYSTEM_PROMPT,
-      tools: [{ type: "web_search_20250305" as any, name: "web_search", max_uses: 3 }],
+      ...(tools ? { tools: tools as any } : {}),
       messages: [{ role: "user", content: userMessage }],
     });
 
@@ -632,7 +642,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
   const enrichmentId = enrichment.id;
 
   try {
-    // Step 1: Signal analysis (parallel, free)
+    // Step 1: Signal analysis (parallel, free, ~200ms)
     const [emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals] = await Promise.all([
       Promise.resolve(analyzeEmail(input.inviteeEmail)),
       Promise.resolve(analyzePhone(input.inviteePhone)),
@@ -641,26 +651,18 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     ]);
 
     // Compute tier 1 score — positive baseline philosophy
-    // They booked a call: that's already above average (baseline 45)
-    // Signals add on top; only genuine red flags subtract
     const BASELINE = 45;
     const signalBoost =
-      emailAnalysis.professional_score +   // 0-30: email quality
-      phoneAnalysis.wealth_score +          // 0-12: location/wealth area
-      behaviorSignals.behavior_score +      // 0-16: booking behavior
-      keywordSignals.keyword_score;         // -10 to 38: keyword signals (+3 for detailed notes)
-    // Signal boost is 0–96 positive range, scale to add up to ~45 more points
+      emailAnalysis.professional_score +
+      phoneAnalysis.wealth_score +
+      behaviorSignals.behavior_score +
+      keywordSignals.keyword_score;
     const scaledBoost = Math.round((Math.max(0, signalBoost) / 96) * 45);
-    // Red flag penalty (keyword_score can go negative)
     const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
     const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
 
-    // ── Step 2: Save signal results + send email FIRST (must complete within 10s timeout) ──
-    // Send email with signal-only data immediately. If Claude enhances later, the DB
-    // row gets updated but the email already went out — better than no email at all.
-
-    // Save signal results (without Claude data)
-    const { error: signalSaveErr } = await supabaseAdmin
+    // Save signal results immediately
+    await supabaseAdmin
       .from("booking_enrichments")
       .update({
         email_analysis: emailAnalysis,
@@ -672,11 +674,32 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       })
       .eq("id", enrichmentId);
 
-    if (signalSaveErr) {
-      console.error("[Enrichment] Failed to save signal results:", signalSaveErr.message);
+    // Step 2: Claude AI synthesis (time-aware web_search decision)
+    // after() keeps the function alive after response, so we have the full
+    // Netlify function timeout available (10s free tier, 26s Pro).
+    // Budget: ~1s for signals above, ~1s for DB saves + email below.
+    // That leaves ~7s on free tier or ~23s on Pro for Claude.
+    const elapsed = Date.now() - startedAt;
+    const remainingMs = Math.max(0, 9000 - elapsed); // assume 10s total budget, 1s buffer
+    // Use web_search only if we have 15+ seconds (Pro tier or higher)
+    const useWebSearch = remainingMs > 15000;
+    let claudeResult: ClaudeResult | null = null;
+    let totalCostCents = 0;
+
+    if (remainingMs > 3000) {
+      console.log(`[Enrichment] Claude call — ${remainingMs}ms remaining, web_search=${useWebSearch}`);
+      claudeResult = await synthesizeWithClaude(
+        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, useWebSearch,
+      );
+      if (claudeResult) {
+        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
+      }
+    } else {
+      console.warn(`[Enrichment] Skipping Claude — only ${remainingMs}ms remaining`);
     }
 
-    // Send meeting prep email with signal analysis (no AI yet — that comes later)
+    // Step 3: Send single meeting prep email with all available data
+    // Claude result included when available; signal-only fallback otherwise
     try {
       await sendMeetingPrepEmail({
         input,
@@ -685,7 +708,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
         behaviorSignals,
         keywordSignals,
         tier1Score,
-        claudeResult: null, // AI not ready yet — signal-only email
+        claudeResult,
       });
 
       await supabaseAdmin
@@ -693,29 +716,12 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
         .update({ prep_email_sent_at: new Date().toISOString() })
         .eq("id", enrichmentId);
 
-      console.log(`[Enrichment] Signal-only prep email sent for booking ${input.bookingId} — tier1=${tier1Score}, ${Date.now() - startedAt}ms`);
+      console.log(`[Enrichment] Prep email sent for booking ${input.bookingId} — tier1=${tier1Score}, ai=${claudeResult ? "yes" : "no"}, ${Date.now() - startedAt}ms`);
     } catch (emailErr) {
       console.error("[Enrichment] Prep email failed:", emailErr instanceof Error ? emailErr.message : emailErr);
     }
 
-    // ── Step 3: Claude AI synthesis (optional, runs if time allows) ──
-    const elapsed = Date.now() - startedAt;
-    let claudeResult: ClaudeResult | null = null;
-    let totalCostCents = 0;
-
-    if (elapsed < 25000) {
-      claudeResult = await synthesizeWithClaude(
-        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score,
-      );
-
-      if (claudeResult) {
-        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
-      }
-    } else {
-      console.warn(`[Enrichment] Skipping Claude — ${elapsed}ms elapsed, approaching timeout`);
-    }
-
-    // Save final results (including Claude data if available)
+    // Save final results
     const { error: updateErr } = await supabaseAdmin
       .from("booking_enrichments")
       .update({
@@ -735,17 +741,17 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       .eq("id", enrichmentId);
 
     if (updateErr) {
-      console.error("[Enrichment] Failed to save Claude results:", updateErr.message);
+      console.error("[Enrichment] Failed to save results:", updateErr.message);
     }
 
     console.log(
       `[Enrichment] Completed for booking ${input.bookingId} — ` +
       `tier1=${tier1Score}, ai=${claudeResult?.qualification_score ?? "skipped"}, ` +
       `person=${claudeResult?.person_confidence ?? "none"}, ` +
-      `cost=${totalCostCents}¢, ${Date.now() - startedAt}ms`
+      `web_search=${useWebSearch}, cost=${totalCostCents}¢, ${Date.now() - startedAt}ms`
     );
   } catch (err) {
-    // Mark as failed
+    // Mark as failed — still try to send signal-only email
     await supabaseAdmin
       .from("booking_enrichments")
       .update({

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createCalendarEvent } from "@/lib/google-calendar";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-errors";
 import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
 import { executeInstantWorkflows } from "@/lib/workflows";
+import { runEnrichmentPipeline } from "@/lib/enrichment";
 import type { EnrichmentInput } from "@/lib/types";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
@@ -410,7 +411,9 @@ export async function POST(request: NextRequest) {
       timezone,
     }).catch((err) => console.error("[Booking] Webhook fire failed:", err instanceof Error ? err.message : err));
 
-    // Trigger AI enrichment pipeline (awaits insert + fetch initiation, pipeline runs in separate function)
+    // AI enrichment pipeline — runs AFTER response via Next.js after() API
+    // This keeps the function alive after the booking response is sent,
+    // eliminating the need for fetch-to-self or separate function invocations.
     const enrichmentInput: EnrichmentInput = {
       bookingId: booking.id,
       inviteeName: cleanName,
@@ -426,41 +429,13 @@ export async function POST(request: NextRequest) {
       meetingType: eventType.meeting_type || null,
     };
 
-    // Create pending enrichment row + trigger pipeline
-    // Await the fetch with a short timeout to ensure the HTTP request reaches Netlify
-    // before the booking Lambda returns. The enrichment function runs independently.
-    try {
-      await supabaseAdmin.from("booking_enrichments").insert({
-        booking_id: booking.id,
-        enrichment_status: "pending",
-      });
-
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-      const cronSecret = process.env.CRON_SECRET;
-      if (siteUrl && cronSecret) {
-        const enrichAbort = new AbortController();
-        const enrichTimer = setTimeout(() => enrichAbort.abort(), 2000);
-        try {
-          await fetch(`${siteUrl}/api/enrichment/run`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${cronSecret}`,
-            },
-            body: JSON.stringify(enrichmentInput),
-            signal: enrichAbort.signal,
-          });
-        } catch {
-          // AbortError expected (enrichment takes >2s) — request already sent to Netlify
-        } finally {
-          clearTimeout(enrichTimer);
-        }
-      } else {
-        console.warn("[Booking] Enrichment skipped — NEXT_PUBLIC_SITE_URL or CRON_SECRET not set");
+    after(async () => {
+      try {
+        await runEnrichmentPipeline(enrichmentInput);
+      } catch (err) {
+        console.error("[Booking] Enrichment pipeline failed:", err instanceof Error ? err.message : err);
       }
-    } catch (err: unknown) {
-      console.error("[Booking] Enrichment row insert failed:", err);
-    }
+    });
 
     // Return confirmation with partial failure warnings
     return successWithWarnings(
