@@ -1009,7 +1009,7 @@ export default function AdminTeamsPage() {
                             {/* Layout style toggle */}
                             <div className="bg-gray-50 rounded-lg px-3 py-2.5 flex items-center justify-between">
                               <div>
-                                <div className="text-sm font-medium text-gray-900">Desktop Layout</div>
+                                <div className="text-sm font-medium text-gray-900">Expanded Layout</div>
                                 <div className="text-[11px] text-gray-400">
                                   {(team.layout_style || "single") === "single" ? "Single column" : "Expanded (details + booking)"}
                                 </div>

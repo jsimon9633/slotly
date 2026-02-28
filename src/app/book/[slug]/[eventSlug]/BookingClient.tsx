@@ -304,9 +304,24 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   // Expanded layout (disabled in embed mode)
   const isTwoPanel = layoutStyle === "two-panel" && !isEmbed;
 
-  // Month calendar state
-  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
-  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  // Month calendar state — initialize to the first bookable date's month
+  // (skip weekends from today forward so the calendar doesn't open on a dead month)
+  const [viewMonth, setViewMonth] = useState(() => {
+    const d = new Date();
+    for (let i = 0; i < 14; i++) {
+      const check = addDays(d, i);
+      if (check.getDay() !== 0 && check.getDay() !== 6) return check.getMonth();
+    }
+    return d.getMonth();
+  });
+  const [viewYear, setViewYear] = useState(() => {
+    const d = new Date();
+    for (let i = 0; i < 14; i++) {
+      const check = addDays(d, i);
+      if (check.getDay() !== 0 && check.getDay() !== 6) return check.getFullYear();
+    }
+    return d.getFullYear();
+  });
 
   // Date scroll navigation
   const [dateOffset, setDateOffset] = useState(0);
