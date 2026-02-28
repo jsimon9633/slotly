@@ -471,14 +471,14 @@ MEETING TYPE CONTEXT (adjust your analysis based on which type this is):
 
 Your goal is to make the salesperson feel PREPARED, not to gatekeep. Help them connect with this person. Give specific, actionable talking points based on what you know about them — ESPECIALLY from what you found online.`;
 
-interface WebSearchResult {
+export interface WebSearchResult {
   person_profile: string | null;
   person_confidence: "high" | "medium" | "low" | "none";
   search_queries_used: string[];
   linkedin_url: string | null;
 }
 
-interface ClaudeResult {
+export interface ClaudeResult {
   qualification_score: number;
   summary: string;
   talking_points: string[];
@@ -615,39 +615,21 @@ IMPORTANT: Use web_search to research this person BEFORE writing your JSON respo
 export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<void> {
   const startedAt = Date.now();
 
-  // Check for pre-existing "pending" row (created by non-blocking book route)
-  let enrichmentId: string;
-  const { data: existing } = await supabaseAdmin
+  // Upsert enrichment row: create if new, or transition pending → processing
+  const { data: enrichment, error: upsertErr } = await supabaseAdmin
     .from("booking_enrichments")
+    .upsert(
+      { booking_id: input.bookingId, enrichment_status: "processing" },
+      { onConflict: "booking_id" },
+    )
     .select("id")
-    .eq("booking_id", input.bookingId)
-    .in("enrichment_status", ["pending", "processing"])
-    .maybeSingle();
+    .single();
 
-  if (existing) {
-    // Transition pending → processing
-    enrichmentId = existing.id;
-    await supabaseAdmin
-      .from("booking_enrichments")
-      .update({ enrichment_status: "processing" })
-      .eq("id", enrichmentId);
-  } else {
-    // Create new enrichment row
-    const { data: enrichment, error: insertErr } = await supabaseAdmin
-      .from("booking_enrichments")
-      .insert({
-        booking_id: input.bookingId,
-        enrichment_status: "processing",
-      })
-      .select("id")
-      .single();
-
-    if (insertErr || !enrichment) {
-      console.error("[Enrichment] Failed to create enrichment row:", insertErr?.message);
-      return;
-    }
-    enrichmentId = enrichment.id;
+  if (upsertErr || !enrichment) {
+    console.error("[Enrichment] Failed to upsert enrichment row:", upsertErr?.message);
+    return;
   }
+  const enrichmentId = enrichment.id;
 
   try {
     // Step 1: Signal analysis (parallel, free)
@@ -678,8 +660,8 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     let claudeResult: ClaudeResult | null = null;
     let totalCostCents = 0;
 
-    if (elapsed < 4000) {
-      // Step 2: Claude Sonnet synthesis with web_search
+    if (elapsed < 8000) {
+      // Step 2: Claude Sonnet synthesis with web_search (runs in own function, 10s timeout)
       claudeResult = await synthesizeWithClaude(
         input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score,
       );

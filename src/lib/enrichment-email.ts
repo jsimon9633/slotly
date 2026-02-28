@@ -6,6 +6,7 @@ import type {
   BehaviorSignals,
   KeywordSignals,
 } from "@/lib/types";
+import type { ClaudeResult } from "@/lib/enrichment";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.EMAIL_FROM || "help@masterworks.com";
@@ -17,22 +18,6 @@ if (SENDGRID_API_KEY) {
 }
 
 // ─── Types ──────────────────────────────────────────────
-
-interface ClaudeResult {
-  qualification_score: number;
-  summary: string;
-  talking_points: string[];
-  risk_flags: string[];
-  recommended_approach: string;
-  person_profile: string | null;
-  person_confidence: "high" | "medium" | "low" | "none";
-  web_search_result: {
-    person_profile: string | null;
-    person_confidence: "high" | "medium" | "low" | "none";
-    search_queries_used: string[];
-    linkedin_url: string | null;
-  } | null;
-}
 
 interface MeetingPrepEmailData {
   input: EnrichmentInput;

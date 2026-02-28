@@ -210,10 +210,7 @@ export default function BookingClient({ eventType, settings, slug, teamSlug, tea
   const bookingQuestions = eventType.booking_questions || [];
 
   // Meeting-type-specific topic chips and notes starters
-  const { topicChips, notesStarters, topicLabel, notesLabel } = useMemo(
-    () => getQuestionsForMeetingType(eventType.meeting_type),
-    [eventType.meeting_type],
-  );
+  const { topicChips, notesStarters, topicLabel, notesLabel } = getQuestionsForMeetingType(eventType.meeting_type);
 
   // Close country picker on click outside
   useEffect(() => {

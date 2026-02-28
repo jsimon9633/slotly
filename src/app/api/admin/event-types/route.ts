@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { unauthorized, badRequest, serverError, sanitizeString } from "@/lib/api-errors";
+import { MEETING_TYPE_OPTIONS } from "@/lib/meeting-type-questions";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -257,10 +258,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (meeting_type !== undefined) {
-    const validMeetingTypes = [
-      "initial_consultation", "portfolio_review", "follow_up",
-      "missed_follow_up", "event_follow_up", null,
-    ];
+    const validMeetingTypes: (string | null)[] = [...MEETING_TYPE_OPTIONS.map(o => o.value), null];
     if (!validMeetingTypes.includes(meeting_type)) {
       return badRequest("Invalid meeting type");
     }
