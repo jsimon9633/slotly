@@ -247,8 +247,9 @@ src/
 - **Meeting type context** — admin-configurable per event type (`meeting_type` column): `initial_consultation`, `portfolio_review`, `follow_up`, `missed_follow_up`, `event_follow_up`. Adjusts Claude's analysis context and talking points for the meeting scenario
 - **Meeting type admin UI** — dropdown in event type settings to assign meeting types
 - **Investor-intent booking form** — topic suggestion chips (e.g., "Learn about art investing", "Portfolio diversification") and note starters. Chip text fed into enrichment keyword analysis
-- **Async architecture** — booking API creates `booking_enrichments` row (pending), then fires internal fetch to `/api/enrichment/run` (separate serverless function with 60s timeout). Booking response returns in <2 seconds; enrichment + prep email arrive within 30-60 seconds
-- **Graceful degradation** — if `ANTHROPIC_API_KEY` not set, Claude is skipped but signal analysis + email still sent. If Claude times out, falls back to signal-only results
+- **2-email architecture** — uses Next.js `after()` API to run enrichment inline after booking response (no fetch-to-self, no CRON_SECRET dependency). Email 1 (signal-only prep) sent within ~2s. Email 2 (AI update with talking points, person intel, approach) sent after Claude completes (~5-8s). Booking response returns in <2s.
+- **Time-aware Claude** — pipeline calculates remaining time from HTTP request start. Free tier (10s): Haiku without web search (~3-5s). Pro tier (26s): Sonnet with web_search tool (~15-20s for LinkedIn/professional background lookup). Falls back gracefully if timeout is tight.
+- **Graceful degradation** — if `ANTHROPIC_API_KEY` not set, Claude skipped but Email 1 (signal analysis) still sent. If Claude times out, Email 1 was already delivered. `/api/enrichment/run` kept as fallback endpoint for cron retries (has its own function timeout).
 
 ### Intelligence Features
 - **Smart scheduling** (`src/lib/smart-scheduling.ts`) — surfaces "Popular" and "Recommended" time badges based on industry defaults (Tue-Thu, 10am-2pm) with planned upgrade to booking-history-based intelligence once enough data accumulates
@@ -292,11 +293,12 @@ All resolved:
 - **Month calendar auto-advance** — initializes to first bookable month, not current month (fixes dead-month bug when remaining days are past/weekend)
 - **Duplicate `maxDate` cleanup** — removed duplicate computation, moved to single declaration after `days` array
 
-### Session 5 QA Fixes (2026-02-28)
+### Session 5 QA Fixes (2026-03-01)
 All resolved:
 - **Email 5-minute delay** — `sendBookingEmails` was fire-and-forget (no `await`). On Netlify/Lambda, the function froze after sending the response, and pending email Promises only completed when the Lambda thawed on the next request. **Fix:** now `await`ed before response.
-- **Meeting prep email never sent** — three compounding issues: (1) enrichment trigger was in a detached `Promise.resolve().then()` chain that could be killed by Lambda freeze; (2) enrichment function had no `maxDuration`, so Netlify's 10s default timeout killed the Claude API call; (3) migration was missing `web_search_result` and `person_confidence` columns, causing the DB save to fail. **Fix:** awaited insert, added `maxDuration=60`, added missing columns, added 30s Claude API timeout.
+- **Meeting prep email never sent** — root cause: fetch-to-self pattern to `/api/enrichment/run` required `CRON_SECRET` env var (silently skipped when unset), and even if set, Lambda freeze killed the detached fetch. Additional issues: migration missing columns, no `maxDuration`. **Fix:** replaced fetch-to-self with Next.js `after()` API — enrichment runs inline after response, same function, no env var dependency. 2-email architecture: signal email sent first (guaranteed), AI email sent after Claude completes.
 - **`emailSent` always true** — booking response always reported `email_sent: true` even on failure. Now set to `false` in catch block.
+- **Time budget miscalculation** — enrichment pipeline calculated remaining time from pipeline start, not HTTP request start. On free tier (10s), booking handler used ~3s leaving only ~7s, but pipeline thought it had 9s. **Fix:** pass `requestStartedAt` from booking handler into pipeline for accurate time budgeting.
 
 ---
 
@@ -370,18 +372,19 @@ BookingClient (CSR) → fetches availability slots via /api/availability
     → awaits confirmation + team member alert emails (SendGrid)
     → fires webhooks (best-effort, non-blocking)
     → triggers workflow automations
-    → awaits booking_enrichments row insert (pending)
-    → fires enrichment pipeline via internal fetch (separate function, non-blocking)
+    → registers after() callback for enrichment pipeline
     → returns confirmation with start_time, end_time, team_member_name, event_type
 
-Enrichment pipeline (runs in /api/enrichment/run, separate serverless function, 60s timeout):
+Enrichment pipeline (runs via after() in same function, after response sent):
   → upserts enrichment row to "processing"
-  → parallel signal analysis: email, phone, behavior, keywords (zero-cost, <500ms)
+  → parallel signal analysis: email, phone, behavior, keywords (zero-cost, <200ms)
   → computes tier1_score (positive-baseline 45 + signal boost)
-  → Claude Sonnet synthesis with web_search tool (30s timeout, skipped if no API key)
+  → sends Email 1: signal-only meeting prep to team member (~500ms)
+  → calculates remaining time budget from request start
+  → if >15s: Claude Sonnet with web_search (Pro tier)
+  → if >3s: Claude Haiku without web search (free tier)
+  → if Claude completed: sends Email 2: AI update with talking points + person intel
   → saves all results to booking_enrichments
-  → sends meeting prep email to team member (+ optional CC)
-  → marks prep_email_sent_at
 ```
 
 ### Team ↔ Event Type Resolution
@@ -571,13 +574,14 @@ All emails include Reschedule + Cancel buttons via `manageButtonsHtml()` (except
 
 **Pattern:** `build*Email()` returns `{ subject, html }`, then `send*Emails()` fires both parties' emails in parallel via `Promise.allSettled`. Individual `sendEmail()` calls go through SendGrid, with graceful fallback if `SENDGRID_API_KEY` is unset.
 
-6. **Meeting prep email** → team member (subject: "Meeting Prep: {name} — {event} ({date})") — sent from `enrichment-email.ts`, not `email.ts`. Includes qualification badge, AI summary, person intel, talking points, signal analysis.
+6. **Meeting prep email 1** → team member (subject: "Meeting Prep: {name} — {event} ({date})") — signal-only prep with qualification badge, invitee details, full signal analysis breakdown. Sent within ~2s of booking.
+7. **Meeting prep email 2** → team member (subject: "AI Prep Ready: {name} — {event} ({date})") — AI update with summary, person intel, talking points, risk flags, recommended approach. Sent ~5-8s after booking (when Claude completes). Both from `enrichment-email.ts`. Optional CC via `ENRICHMENT_CC_EMAIL`.
 
 ### `src/lib/enrichment.ts` — AI Meeting Prep Pipeline
 
-**Two-phase enrichment** that runs automatically after every booking:
+**2-email enrichment** that runs automatically after every booking via Next.js `after()`:
 
-**Phase 1 — Signal Analysis (zero-cost, <500ms):**
+**Email 1 — Signal Analysis (zero-cost, <2s, guaranteed delivery):**
 All four analyzers run in parallel via `Promise.all`:
 - `analyzeEmail()` — domain classification (personal/corporate/high-value finance), handle pattern (firstname.lastname, username, initials), professional score (0-30)
 - `analyzePhone()` — area code lookup against high-wealth (Manhattan, Beverly Hills, Palo Alto, Palm Beach, etc.) and major metro sets; international country code wealth scoring (UAE, Singapore, Switzerland = +12); geo inference
@@ -586,20 +590,22 @@ All four analyzers run in parallel via `Promise.all`:
 
 **Tier 1 Score:** Baseline 45 + scaled signal boost (0-45) - red flag penalty. Range 10-100. Philosophy: booking a call is already above average.
 
-**Phase 2 — Claude AI Synthesis (optional, ~$0.01/booking):**
-- Model: `claude-sonnet-4-5-20250514` with `web_search_20250305` tool (max 3 searches)
-- Claude searches for the person online (LinkedIn, professional background)
+**Email 2 — Claude AI Synthesis (optional, ~$0.01/booking):**
+- **Time-aware model selection:** Pipeline receives `functionStartedAt` from booking handler to calculate real remaining time. If >15s remain (Pro tier): Sonnet with `web_search` tool (max 3 searches). If 3-15s remain (free tier): Haiku without web search. If <3s: skipped entirely.
+- **With web search (Pro):** Sonnet searches for the person online (LinkedIn, professional background). Full person intel in email.
+- **Without web search (free):** Haiku analyzes signal data only. Talking points + approach guide still generated, but no person profile/LinkedIn.
 - Returns JSON: `qualification_score`, `summary`, `talking_points`, `risk_flags`, `recommended_approach`, `person_profile`, `person_confidence`, `linkedin_url`
 - Meeting type context adjusts the analysis (e.g., `portfolio_review` = existing investor, don't explain basics)
-- 30-second API timeout; skipped entirely if `ANTHROPIC_API_KEY` not set or time budget exceeded
 
 **Scoring tiers:** 75-100 "Ready to Invest", 60-74 "Strong Prospect", 45-59 "Standard Lead", <45 "Early Stage"
 
 **Approach guide:** `direct` (jump to offerings), `consultative` (discover goals), `educational` (explain how it works), `cautious` (qualify budget early)
 
-**Serverless pattern:** Enrichment runs in a separate Netlify function (`/api/enrichment/run`) with `maxDuration=60`. Triggered via internal `fetch()` from the booking API. Auth via `CRON_SECRET` bearer token. The booking API `await`s the enrichment row insert but fire-and-forgets the fetch response.
+**Serverless pattern:** Enrichment runs inline via Next.js `after()` API in the booking function — no separate function invocation, no env var dependency. The `after()` callback executes after the HTTP response is sent but within the same function lifecycle. Time budget calculated from request start (not pipeline start) to account for booking handler overhead (~2-3s).
 
-**Gotcha — Netlify/Lambda fire-and-forget:** Promises that are not `await`ed in serverless functions are NOT guaranteed to complete. After the handler returns, the Lambda may freeze immediately. This caused the original email delay bug (5 min wait). **Rule:** Always `await` any operation that must complete (emails, DB writes). Only fire-and-forget operations that trigger separate function invocations (the enrichment fetch starts a NEW Lambda).
+**Fallback endpoint:** `/api/enrichment/run` kept with `maxDuration=60` for cron-triggered retries of failed enrichments. Auth via `CRON_SECRET` bearer token.
+
+**Gotcha — `after()` on Netlify:** The `after()` callback shares the function's total timeout (10s free, 26s Pro). Booking handler uses ~2-3s, leaving ~7s (free) or ~23s (Pro) for enrichment. The pipeline must complete ALL work (signals + email 1 + Claude + email 2 + DB saves) within this window. Time-aware Claude model selection ensures the pipeline fits within the available budget.
 
 ### `src/lib/webhooks.ts` — HMAC-Signed Delivery
 

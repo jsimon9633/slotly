@@ -46,6 +46,8 @@ const MAX_NOTES_LENGTH = 1000;
 const MAX_EMAIL_LENGTH = 254;
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
+
   // Rate limiting
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -431,7 +433,7 @@ export async function POST(request: NextRequest) {
 
     after(async () => {
       try {
-        await runEnrichmentPipeline(enrichmentInput);
+        await runEnrichmentPipeline(enrichmentInput, requestStartedAt);
       } catch (err) {
         console.error("[Booking] Enrichment pipeline failed:", err instanceof Error ? err.message : err);
       }

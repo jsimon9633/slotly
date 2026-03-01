@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
-import { sendMeetingPrepEmail } from "@/lib/enrichment-email";
+import { sendMeetingPrepEmail, sendAIUpdateEmail } from "@/lib/enrichment-email";
 import type {
   EnrichmentInput,
   EmailAnalysis,
@@ -622,10 +622,29 @@ SIGNAL SCORE: ${tier1Score}/100${searchInstructions}`;
 
 // ─── Pipeline Orchestrator ──────────────────────────────
 
-export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<void> {
-  const startedAt = Date.now();
+// 2-email architecture:
+// Email 1 (signal-only): Sent within ~2s — guaranteed delivery with signal analysis
+// Email 2 (AI update): Sent after Claude completes — talking points, person intel, approach
+//
+// Time budget: after() runs within the same Netlify function timeout.
+// Booking handler uses ~2-3s, so the pipeline has the remaining time.
+// Free tier (10s total): ~7s for pipeline → signal email + Haiku (no web search)
+// Pro tier (26s total): ~23s for pipeline → signal email + Sonnet (with web search)
 
-  // Upsert enrichment row: create if new, or transition pending → processing
+export async function runEnrichmentPipeline(
+  input: EnrichmentInput,
+  functionStartedAt?: number,
+): Promise<void> {
+  const pipelineStart = Date.now();
+  // Calculate real remaining time from when the HTTP request started
+  const requestAge = functionStartedAt ? pipelineStart - functionStartedAt : 3000;
+  // Conservative: assume 10s total timeout, 1s buffer for cleanup
+  const totalBudgetMs = 9000;
+  const remainingFromRequest = Math.max(0, totalBudgetMs - requestAge);
+
+  console.log(`[Enrichment] Pipeline start — requestAge=${requestAge}ms, remaining=${remainingFromRequest}ms`);
+
+  // Upsert enrichment row
   const { data: enrichment, error: upsertErr } = await supabaseAdmin
     .from("booking_enrichments")
     .upsert(
@@ -642,7 +661,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
   const enrichmentId = enrichment.id;
 
   try {
-    // Step 1: Signal analysis (parallel, free, ~200ms)
+    // ── Step 1: Signal analysis (parallel, free, ~200ms) ──
     const [emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals] = await Promise.all([
       Promise.resolve(analyzeEmail(input.inviteeEmail)),
       Promise.resolve(analyzePhone(input.inviteePhone)),
@@ -650,7 +669,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       Promise.resolve(analyzeKeywords(input.inviteeNotes, input.customAnswers)),
     ]);
 
-    // Compute tier 1 score — positive baseline philosophy
+    // Compute tier 1 score
     const BASELINE = 45;
     const signalBoost =
       emailAnalysis.professional_score +
@@ -661,7 +680,7 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
     const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
     const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
 
-    // Save signal results immediately
+    // ── Step 2: Save signals + send Email 1 (signal-only prep) ──
     await supabaseAdmin
       .from("booking_enrichments")
       .update({
@@ -674,32 +693,6 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       })
       .eq("id", enrichmentId);
 
-    // Step 2: Claude AI synthesis (time-aware web_search decision)
-    // after() keeps the function alive after response, so we have the full
-    // Netlify function timeout available (10s free tier, 26s Pro).
-    // Budget: ~1s for signals above, ~1s for DB saves + email below.
-    // That leaves ~7s on free tier or ~23s on Pro for Claude.
-    const elapsed = Date.now() - startedAt;
-    const remainingMs = Math.max(0, 9000 - elapsed); // assume 10s total budget, 1s buffer
-    // Use web_search only if we have 15+ seconds (Pro tier or higher)
-    const useWebSearch = remainingMs > 15000;
-    let claudeResult: ClaudeResult | null = null;
-    let totalCostCents = 0;
-
-    if (remainingMs > 3000) {
-      console.log(`[Enrichment] Claude call — ${remainingMs}ms remaining, web_search=${useWebSearch}`);
-      claudeResult = await synthesizeWithClaude(
-        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, useWebSearch,
-      );
-      if (claudeResult) {
-        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
-      }
-    } else {
-      console.warn(`[Enrichment] Skipping Claude — only ${remainingMs}ms remaining`);
-    }
-
-    // Step 3: Send single meeting prep email with all available data
-    // Claude result included when available; signal-only fallback otherwise
     try {
       await sendMeetingPrepEmail({
         input,
@@ -708,21 +701,49 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
         behaviorSignals,
         keywordSignals,
         tier1Score,
-        claudeResult,
+        claudeResult: null,
       });
-
       await supabaseAdmin
         .from("booking_enrichments")
         .update({ prep_email_sent_at: new Date().toISOString() })
         .eq("id", enrichmentId);
-
-      console.log(`[Enrichment] Prep email sent for booking ${input.bookingId} — tier1=${tier1Score}, ai=${claudeResult ? "yes" : "no"}, ${Date.now() - startedAt}ms`);
+      console.log(`[Enrichment] Email 1 (signals) sent — tier1=${tier1Score}, ${Date.now() - pipelineStart}ms`);
     } catch (emailErr) {
-      console.error("[Enrichment] Prep email failed:", emailErr instanceof Error ? emailErr.message : emailErr);
+      console.error("[Enrichment] Email 1 failed:", emailErr instanceof Error ? emailErr.message : emailErr);
+    }
+
+    // ── Step 3: Claude AI synthesis + Email 2 (AI update) ──
+    const elapsedSinceRequest = functionStartedAt ? Date.now() - functionStartedAt : Date.now() - pipelineStart + 3000;
+    const remainingForClaude = Math.max(0, totalBudgetMs - elapsedSinceRequest - 1500); // 1.5s buffer for email + save
+    // Use web_search only if 15+ seconds remain (Pro tier)
+    const useWebSearch = remainingForClaude > 15000;
+    let claudeResult: ClaudeResult | null = null;
+    let totalCostCents = 0;
+
+    if (remainingForClaude > 3000) {
+      console.log(`[Enrichment] Claude call — ${remainingForClaude}ms budget, web_search=${useWebSearch}`);
+      claudeResult = await synthesizeWithClaude(
+        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, useWebSearch,
+      );
+      if (claudeResult) {
+        totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
+      }
+    } else {
+      console.warn(`[Enrichment] Skipping Claude — only ${remainingForClaude}ms remaining`);
+    }
+
+    // Send Email 2 (AI update) if Claude produced results
+    if (claudeResult && (claudeResult.summary || claudeResult.talking_points?.length)) {
+      try {
+        await sendAIUpdateEmail({ input, tier1Score, claudeResult });
+        console.log(`[Enrichment] Email 2 (AI) sent — score=${claudeResult.qualification_score}, ${Date.now() - pipelineStart}ms`);
+      } catch (emailErr) {
+        console.error("[Enrichment] Email 2 failed:", emailErr instanceof Error ? emailErr.message : emailErr);
+      }
     }
 
     // Save final results
-    const { error: updateErr } = await supabaseAdmin
+    await supabaseAdmin
       .from("booking_enrichments")
       .update({
         ai_summary: claudeResult?.summary || null,
@@ -740,18 +761,12 @@ export async function runEnrichmentPipeline(input: EnrichmentInput): Promise<voi
       })
       .eq("id", enrichmentId);
 
-    if (updateErr) {
-      console.error("[Enrichment] Failed to save results:", updateErr.message);
-    }
-
     console.log(
-      `[Enrichment] Completed for booking ${input.bookingId} — ` +
-      `tier1=${tier1Score}, ai=${claudeResult?.qualification_score ?? "skipped"}, ` +
-      `person=${claudeResult?.person_confidence ?? "none"}, ` +
-      `web_search=${useWebSearch}, cost=${totalCostCents}¢, ${Date.now() - startedAt}ms`
+      `[Enrichment] Done — booking=${input.bookingId}, tier1=${tier1Score}, ` +
+      `ai=${claudeResult?.qualification_score ?? "skipped"}, ` +
+      `web_search=${useWebSearch}, cost=${totalCostCents}¢, ${Date.now() - pipelineStart}ms total`
     );
   } catch (err) {
-    // Mark as failed — still try to send signal-only email
     await supabaseAdmin
       .from("booking_enrichments")
       .update({

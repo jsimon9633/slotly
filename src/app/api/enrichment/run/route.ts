@@ -55,9 +55,7 @@ export async function POST(request: NextRequest) {
     meetingType: meetingType || null,
   };
 
-  // Run pipeline (non-blocking — respond immediately, process in background)
-  // Note: On Netlify, the response will hold until the pipeline completes
-  // since we await. This is fine within the 10s function timeout.
+  // Run pipeline — this endpoint has maxDuration=60, so Claude has plenty of time
   try {
     await runEnrichmentPipeline(input);
     return NextResponse.json({ success: true });

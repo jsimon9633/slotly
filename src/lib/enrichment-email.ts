@@ -367,7 +367,205 @@ function buildMeetingPrepEmail(data: MeetingPrepEmailData): { subject: string; h
   return { subject, html };
 }
 
-// ─── Send Function ──────────────────────────────────────
+// ─── AI Update Email Builder ────────────────────────────
+
+interface AIUpdateEmailData {
+  input: EnrichmentInput;
+  tier1Score: number;
+  claudeResult: ClaudeResult;
+}
+
+function buildAIUpdateEmail(data: AIUpdateEmailData): { subject: string; html: string } {
+  const { input, tier1Score, claudeResult } = data;
+
+  const score = claudeResult.qualification_score ?? tier1Score;
+  const badge = getQualBadge(score);
+
+  let dateShort: string;
+  try {
+    dateShort = new Date(input.startTime).toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: input.timezone,
+    });
+  } catch {
+    dateShort = new Date(input.startTime).toLocaleDateString("en-US");
+  }
+
+  const subject = `AI Prep Ready: ${input.inviteeName} — ${input.eventTitle} (${dateShort})`;
+
+  const talkingPointsHtml = claudeResult.talking_points?.length
+    ? claudeResult.talking_points.map((tp) =>
+        `<tr><td style="padding:4px 0;font-size:14px;color:#374151;">• ${escapeHtml(tp)}</td></tr>`
+      ).join("")
+    : "";
+
+  const riskFlagsHtml = claudeResult.risk_flags?.length
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="background:#fef2f2;border-radius:8px;padding:16px;margin-bottom:20px;">
+        <tr><td style="font-size:13px;font-weight:600;color:#991b1b;padding-bottom:8px;">Risk Flags</td></tr>
+        ${claudeResult.risk_flags.map((rf) =>
+          `<tr><td style="font-size:13px;color:#991b1b;padding:2px 0;">⚠ ${escapeHtml(rf)}</td></tr>`
+        ).join("")}
+      </table>`
+    : "";
+
+  const approachHtml = claudeResult.recommended_approach
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border-radius:8px;padding:16px;margin-bottom:20px;">
+        <tr>
+          <td>
+            <span style="font-size:13px;font-weight:600;color:#1e40af;">Recommended Approach: </span>
+            <span style="font-size:13px;font-weight:700;color:#1e40af;text-transform:capitalize;">${escapeHtml(claudeResult.recommended_approach)}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#1e40af;padding-top:4px;">${escapeHtml(getApproachDescription(claudeResult.recommended_approach))}</td>
+        </tr>
+      </table>`
+    : "";
+
+  let personIntelHtml = "";
+  if (claudeResult.person_profile) {
+    const confidence = claudeResult.person_confidence || "none";
+    const confBadge = getConfidenceBadge(confidence);
+    const linkedinUrl = claudeResult.web_search_result?.linkedin_url;
+    personIntelHtml = `
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid #059669;">
+      <tr>
+        <td>
+          <table cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-size:13px;font-weight:600;color:#059669;">Person Intel</td>
+              <td style="padding-left:10px;">
+                <span style="background:${confBadge.bgColor};border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;color:${confBadge.color};">${confBadge.label}</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="font-size:14px;color:#374151;line-height:1.5;padding-top:8px;">${escapeHtml(claudeResult.person_profile)}</td>
+      </tr>
+      ${linkedinUrl ? `
+      <tr>
+        <td style="padding-top:8px;">
+          <a href="${escapeHtml(linkedinUrl)}" style="font-size:13px;color:#0077b5;text-decoration:none;font-weight:600;">View LinkedIn Profile &rarr;</a>
+        </td>
+      </tr>` : ""}
+    </table>`;
+  }
+
+  const content = `
+    <!-- Header -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+      <tr>
+        <td>
+          <table cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="background:#ede9fe;border-radius:20px;padding:6px 14px;">
+                <span style="font-size:13px;font-weight:700;color:#6d28d9;">AI Analysis Ready</span>
+              </td>
+              <td style="padding-left:12px;">
+                <table cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="background:${badge.bgColor};border-radius:20px;padding:4px 12px;">
+                      <span style="font-size:12px;font-weight:700;color:${badge.color};">${badge.label} · ${score}/100</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Meeting context -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+      <tr>
+        <td style="font-size:14px;color:#6b7280;">
+          ${escapeHtml(input.inviteeName)} · ${escapeHtml(input.eventTitle)} · ${escapeHtml(formatDateTime(input.startTime, input.timezone))}
+        </td>
+      </tr>
+    </table>
+
+    ${claudeResult.summary ? `
+    <!-- AI Summary -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid #4f46e5;">
+      <tr>
+        <td style="font-size:13px;font-weight:600;color:#4f46e5;padding-bottom:8px;">AI Summary</td>
+      </tr>
+      <tr>
+        <td style="font-size:14px;color:#374151;line-height:1.5;">${escapeHtml(claudeResult.summary)}</td>
+      </tr>
+    </table>
+    ` : ""}
+
+    ${personIntelHtml}
+
+    ${talkingPointsHtml ? `
+    <!-- Talking Points -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr>
+        <td style="font-size:13px;font-weight:600;color:#374151;padding-bottom:8px;">Talking Points</td>
+      </tr>
+      ${talkingPointsHtml}
+    </table>
+    ` : ""}
+
+    ${riskFlagsHtml}
+    ${approachHtml}`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body style="margin:0;padding:0;background:#f7f8fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8fa;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+          <!-- Logo -->
+          <tr>
+            <td style="padding-bottom:24px;">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:#6d28d9;border-radius:8px;width:32px;height:32px;text-align:center;vertical-align:middle;">
+                    <span style="color:white;font-size:16px;font-weight:bold;">AI</span>
+                  </td>
+                  <td style="padding-left:10px;font-size:20px;font-weight:700;color:#111827;">
+                    Slotly AI Prep
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Card -->
+          <tr>
+            <td style="background:white;border-radius:12px;border:1px solid #e5e7eb;padding:32px;">
+              ${content}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:24px;text-align:center;font-size:13px;color:#9ca3af;">
+              AI Meeting Prep by Slotly · Powered by Claude
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject, html };
+}
+
+// ─── Send Functions ─────────────────────────────────────
 
 export async function sendMeetingPrepEmail(data: MeetingPrepEmailData): Promise<void> {
   if (!SENDGRID_API_KEY) {
@@ -377,13 +575,11 @@ export async function sendMeetingPrepEmail(data: MeetingPrepEmailData): Promise<
 
   const { subject, html } = buildMeetingPrepEmail(data);
 
-  // Build recipient list: team member + CC
   const recipients: string[] = [data.input.teamMemberEmail];
   if (ENRICHMENT_CC_EMAIL && ENRICHMENT_CC_EMAIL !== data.input.teamMemberEmail) {
     recipients.push(ENRICHMENT_CC_EMAIL);
   }
 
-  // Send to each recipient (SendGrid personalizations)
   try {
     await sgMail.send({
       to: recipients.map((email) => ({ email })),
@@ -391,12 +587,36 @@ export async function sendMeetingPrepEmail(data: MeetingPrepEmailData): Promise<
       subject,
       html,
     });
-    console.log(`[Enrichment Email] Meeting prep sent to ${recipients.join(", ")}`);
+    console.log(`[Enrichment Email] Signal prep sent to ${recipients.join(", ")}`);
   } catch (err) {
-    console.error(
-      "[Enrichment Email] Failed to send:",
-      err instanceof Error ? err.message : err,
-    );
+    console.error("[Enrichment Email] Failed to send signal prep:", err instanceof Error ? err.message : err);
+    throw err;
+  }
+}
+
+export async function sendAIUpdateEmail(data: AIUpdateEmailData): Promise<void> {
+  if (!SENDGRID_API_KEY) {
+    console.warn("[Enrichment Email] SENDGRID_API_KEY not set, skipping AI update email");
+    return;
+  }
+
+  const { subject, html } = buildAIUpdateEmail(data);
+
+  const recipients: string[] = [data.input.teamMemberEmail];
+  if (ENRICHMENT_CC_EMAIL && ENRICHMENT_CC_EMAIL !== data.input.teamMemberEmail) {
+    recipients.push(ENRICHMENT_CC_EMAIL);
+  }
+
+  try {
+    await sgMail.send({
+      to: recipients.map((email) => ({ email })),
+      from: { email: FROM_EMAIL, name: FROM_NAME },
+      subject,
+      html,
+    });
+    console.log(`[Enrichment Email] AI update sent to ${recipients.join(", ")}`);
+  } catch (err) {
+    console.error("[Enrichment Email] Failed to send AI update:", err instanceof Error ? err.message : err);
     throw err;
   }
 }
