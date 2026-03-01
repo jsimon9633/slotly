@@ -1,6 +1,6 @@
 # Slotly — Project Knowledge Base
 
-> **Last updated:** 2026-02-28 (Session 4)
+> **Last updated:** 2026-02-28 (Session 5)
 > **Owner:** Alberto (asimon@masterworks.com)
 > **Repo:** https://github.com/jsimon9633/slotly
 > **Live URL:** https://sparkling-tarsier-bc26ef.netlify.app/
@@ -42,7 +42,9 @@
 | `TOKEN_ENCRYPTION_KEY` | 32-byte hex string (64 hex chars) for AES-256-GCM encryption of OAuth tokens |
 | `SLACK_BOT_TOKEN` | (optional) Slack bot token for re-auth DM notifications |
 | `SLACK_WEBHOOK_URL` | (optional) Slack webhook for channel notifications |
-| `CRON_SECRET` | Bearer token for cron endpoints |
+| `CRON_SECRET` | Bearer token for cron endpoints and internal enrichment API |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude AI meeting prep synthesis (optional — signal analysis works without it) |
+| `ENRICHMENT_CC_EMAIL` | (optional) CC address for meeting prep emails (e.g., sales manager) |
 
 ---
 
@@ -104,6 +106,7 @@ src/
 │       │   └── reschedule/route.ts       # POST reschedule booking (uses OAuth tokens)
 │       │
 │       ├── cron/reminders/route.ts       # Cron: send booking reminders + OAuth token health check
+│       ├── enrichment/run/route.ts       # Internal: POST run enrichment pipeline (CRON_SECRET auth)
 │       │
 │       └── admin/
 │           ├── event-types/route.ts      # CRUD event types (GET, POST, PATCH, DELETE)
@@ -127,6 +130,8 @@ src/
 │   ├── smart-scheduling.ts               # "Popular" / "Recommended" slot badges
 │   ├── no-show-score.ts                  # No-show risk scoring (0-100)
 │   ├── email.ts                          # SendGrid email templates
+│   ├── enrichment.ts                     # AI Meeting Prep: signal analysis + Claude synthesis pipeline
+│   ├── enrichment-email.ts               # Meeting prep email builder + sender
 │   ├── slack-notify.ts                   # Slack DM/webhook notifications for re-auth
 │   ├── webhooks.ts                       # Webhook delivery + HMAC signing + retry
 │   ├── workflows.ts                      # Workflow automation engine (email/SMS triggers)
@@ -144,7 +149,8 @@ src/
         ├── 20260219_add_noshow_and_smart_scheduling.sql # No-show scoring + smart scheduling columns
         ├── 20260226_add_google_oauth.sql         # OAuth columns on team_members, reauth_tokens table, invite_tokens table
         ├── 20260227_add_round_robin_toggle.sql   # in_round_robin boolean on team_memberships (default true)
-        └── 20260228_add_team_display_settings.sql # layout_style + calendar_style columns on teams
+        ├── 20260228_add_team_display_settings.sql # layout_style + calendar_style columns on teams
+        └── 20260301_add_booking_enrichments.sql  # booking_enrichments table + enrichment_status on bookings
 ```
 
 ---
@@ -154,7 +160,7 @@ src/
 | Table | Purpose |
 |---|---|
 | `team_members` | People who can be booked (name, email, Google Calendar ID, OAuth tokens, avatar_url, last_booked_at for round-robin) |
-| `event_types` | Bookable events (title, slug, description, duration, color, buffers, limits, booking_questions) |
+| `event_types` | Bookable events (title, slug, description, duration, color, buffers, limits, booking_questions, meeting_type) |
 | `bookings` | All bookings (invitee info, start/end time, status, manage_token, no_show_score, risk_tier, outcome, custom_answers, reminder_sent_at) |
 | `availability_rules` | Per-member working hours by day of week |
 | `teams` | Team groupings (name, slug, description, layout_style, calendar_style) |
@@ -168,6 +174,7 @@ src/
 | `invite_tokens` | Invite links for OAuth onboarding (token, is_used, used_by_email, expires_at) |
 | `reauth_tokens` | Re-auth links for reconnecting expired OAuth (token, team_member_id, is_used, expires_at) |
 | `sms_settings` | SMS notification config |
+| `booking_enrichments` | AI meeting prep results per booking (signal analysis, Claude AI synthesis, web search results, person confidence, prep email status) |
 
 ---
 
@@ -231,6 +238,26 @@ src/
 - **Workflow automations** — trigger-based email/SMS on booking events (on_booking, on_cancel, on_reschedule, before_meeting, after_meeting)
 - **SMS settings** — SMS notification configuration (beta)
 
+### AI Meeting Prep (Session 5+)
+- **Enrichment pipeline** (`src/lib/enrichment.ts`) — runs automatically after every booking. Two-phase: instant signal analysis (zero-cost) → Claude Sonnet AI synthesis with web search (Pro tier only, ~$0.01/booking)
+- **Signal analysis** — analyzes email domain (personal/corporate/high-value finance), phone area code (high-wealth/metro/international), booking behavior (repeat booker, lead time, business hours), keyword signals in notes/form answers (capital, action, diversifier, long-term, red flags)
+- **Form answer resolution** — `resolveFormAnswers()` maps opaque question IDs (e.g., `q_123_abc`) to human-readable label+value pairs using `bookingQuestions` metadata. Displayed in email as "What They Told Us" section. `EnrichmentInput` carries both `customAnswers` and `bookingQuestions` (with labels, types)
+- **Rule-based talking points** — `generateTalkingPoints()` produces 3-6 contextual talking points from signals without any AI cost:
+  - Meeting type-specific openers (initial consultation vs portfolio review vs follow-up)
+  - Form answer highlights: surfaces what the invitee actually typed with context
+  - Capital/diversifier/action signal interpretation with specific conversation suggestions
+  - Repeat booker, high-wealth location, corporate email insights
+  - Red flag warnings with qualification guidance
+- **Tier 1 scoring** — positive-baseline philosophy: starts at 45 (they booked = above average), adds signal boost scaled 0-45 points, subtracts only for genuine red flags. Range 10-100.
+- **Claude AI synthesis** — Claude Sonnet only, always with `web_search` tool (Haiku path disabled — not enough value without web search). Searches for the person online (LinkedIn, professional background), generates qualification score, summary, talking points, risk flags, recommended approach (direct/consultative/educational/cautious), person profile with confidence level. Claude prompt receives resolved form answers with labels (not raw JSON with opaque IDs)
+- **Meeting prep email** (`src/lib/enrichment-email.ts`) — rich HTML email sent to the team member who got booked. Includes: qualification badge, "What They Told Us" form answers section, rule-based talking points, invitee details, full signal analysis breakdown. When Claude completes: adds AI summary, person intel with LinkedIn link, Claude talking points (override rule-based), risk flags, recommended approach. Optional CC via `ENRICHMENT_CC_EMAIL` env var
+- **Meeting type context** — admin-configurable per event type (`meeting_type` column): `initial_consultation`, `portfolio_review`, `follow_up`, `missed_follow_up`, `event_follow_up`. Adjusts Claude's analysis context and talking points for the meeting scenario
+- **Meeting type admin UI** — dropdown in event type settings to assign meeting types
+- **Investor-intent booking form** — topic suggestion chips (e.g., "Learn about art investing", "Portfolio diversification") and note starters. Chip text fed into enrichment keyword analysis
+- **2-email architecture** — uses Next.js `after()` API to run enrichment inline after booking response (no fetch-to-self, no CRON_SECRET dependency). Email 1 (signal prep with form answers + talking points) sent within ~2s. Email 2 (AI update with person intel, Claude talking points) sent only on Pro tier after Claude+web_search completes (~15-20s). Booking response returns in <2s.
+- **Time-aware Claude** — pipeline calculates remaining time from HTTP request start. Only runs Claude Sonnet+web_search when 15s+ remaining (Pro tier or `/api/enrichment/run` endpoint). On free tier (10s), signal email with talking points is the only email — no Claude call.
+- **Graceful degradation** — if `ANTHROPIC_API_KEY` not set, Claude skipped but signal email (with form answers + talking points) still sent. If Claude times out, Email 1 was already delivered. `/api/enrichment/run` kept as fallback endpoint for cron retries (has its own function timeout).
+
 ### Intelligence Features
 - **Smart scheduling** (`src/lib/smart-scheduling.ts`) — surfaces "Popular" and "Recommended" time badges based on industry defaults (Tue-Thu, 10am-2pm) with planned upgrade to booking-history-based intelligence once enough data accumulates
 - **No-show risk scoring** (`src/lib/no-show-score.ts`) — weighted heuristic model (0-100) based on lead time, day/hour, repeat booker status, topic/notes presence. Stored per booking for future model training
@@ -273,12 +300,19 @@ All resolved:
 - **Month calendar auto-advance** — initializes to first bookable month, not current month (fixes dead-month bug when remaining days are past/weekend)
 - **Duplicate `maxDate` cleanup** — removed duplicate computation, moved to single declaration after `days` array
 
+### Session 5 QA Fixes (2026-03-01)
+All resolved:
+- **Email 5-minute delay** — `sendBookingEmails` was fire-and-forget (no `await`). On Netlify/Lambda, the function froze after sending the response, and pending email Promises only completed when the Lambda thawed on the next request. **Fix:** now `await`ed before response.
+- **Meeting prep email never sent** — root cause: fetch-to-self pattern to `/api/enrichment/run` required `CRON_SECRET` env var (silently skipped when unset), and even if set, Lambda freeze killed the detached fetch. Additional issues: migration missing columns, no `maxDuration`. **Fix:** replaced fetch-to-self with Next.js `after()` API — enrichment runs inline after response, same function, no env var dependency. 2-email architecture: signal email sent first (guaranteed), AI email sent after Claude completes.
+- **`emailSent` always true** — booking response always reported `email_sent: true` even on failure. Now set to `false` in catch block.
+- **Time budget miscalculation** — enrichment pipeline calculated remaining time from pipeline start, not HTTP request start. On free tier (10s), booking handler used ~3s leaving only ~7s, but pipeline thought it had 9s. **Fix:** pass `requestStartedAt` from booking handler into pipeline for accurate time budgeting.
+
 ---
 
 ## Features — What's Not Built Yet
 
 ### High Priority
-- **AI Meeting Prep** — enrichment pipeline: booking history → Google search (name+email) → phone fallback → email handle clues → domain scrape (opportunistic) → Claude API synthesis. See `docs/Slotly Enrichment Services to Explore.docx`
+- **Investor psychology knowledge base** — bake enrichment research (investor psychology, alternative investment interest patterns, typical investment behaviors) into a structured knowledge store. This would let the signal email generate a narrative "AI Summary" paragraph without needing Claude for every booking — drawing on domain expertise embedded in the codebase rather than making an API call. Could be a structured JSON/TS module or a Supabase table of investor archetypes + behavior patterns.
 - **Email template customization** — allow admins to customize confirmation/reminder email templates in the UI
 - **Multi-language support** — i18n for booking pages
 
@@ -332,10 +366,10 @@ Admin approves in /admin/join-requests → member activated
 
 ### Booking Flow Data Pipeline
 ```
-Public booking page (SSR) → fetches eventType (including description) from Supabase
+Public booking page (SSR) → fetches eventType (including description, meeting_type) from Supabase
 BookingClient (CSR) → fetches availability slots via /api/availability
   → user picks date → fetches time slots (uses member's OAuth token for getFreeBusy)
-  → user picks time → shows form
+  → user picks time → shows form (with investor-intent chips if configured)
   → user submits → POST /api/book
     → validates inputs + rate limits
     → calculates no-show risk score
@@ -343,10 +377,24 @@ BookingClient (CSR) → fetches availability slots via /api/availability
     → fetches member's google_oauth_refresh_token
     → creates Google Calendar event (OAuth primary, service account fallback)
     → creates Supabase booking row
-    → sends confirmation email (SendGrid)
+    → awaits confirmation + team member alert emails (SendGrid)
     → fires webhooks (best-effort, non-blocking)
     → triggers workflow automations
+    → registers after() callback for enrichment pipeline
     → returns confirmation with start_time, end_time, team_member_name, event_type
+
+Enrichment pipeline (runs via after() in same function, after response sent):
+  → upserts enrichment row to "processing"
+  → parallel signal analysis: email, phone, behavior, keywords (zero-cost, <200ms)
+  → computes tier1_score (positive-baseline 45 + signal boost)
+  → resolves form answers: maps question IDs to labels via bookingQuestions
+  → generates rule-based talking points from signals + form answers + meeting type
+  → sends Email 1: signal prep with form answers + talking points (~500ms)
+  → calculates remaining time budget from request start
+  → if >15s: Claude Sonnet + web_search (Pro tier — searches LinkedIn etc.)
+  → if <15s: Claude skipped (free tier — Email 1 is the only email)
+  → if Claude completed: sends Email 2: AI update with person intel + Claude talking points
+  → saves all results to booking_enrichments
 ```
 
 ### Team ↔ Event Type Resolution
@@ -535,6 +583,51 @@ Baseline = 20. Clamped to 0–100. Risk tiers: low (< 30), medium (30–49), hig
 All emails include Reschedule + Cancel buttons via `manageButtonsHtml()` (except reminders for invitees only). Meet link with dial-in details shown when available.
 
 **Pattern:** `build*Email()` returns `{ subject, html }`, then `send*Emails()` fires both parties' emails in parallel via `Promise.allSettled`. Individual `sendEmail()` calls go through SendGrid, with graceful fallback if `SENDGRID_API_KEY` is unset.
+
+6. **Meeting prep email 1** → team member (subject: "Meeting Prep: {name} — {event} ({date})") — signal prep with qualification badge, "What They Told Us" form answers (purple card with resolved question labels+values), rule-based talking points, invitee details, full signal analysis breakdown. Sent within ~2s of booking.
+7. **Meeting prep email 2** → team member (subject: "AI Prep Ready: {name} — {event} ({date})") — AI update with summary, person intel, Claude talking points (override rule-based), risk flags, recommended approach. Pro tier only (~15-20s after booking). Both from `enrichment-email.ts`. Optional CC via `ENRICHMENT_CC_EMAIL`.
+
+### `src/lib/enrichment.ts` — AI Meeting Prep Pipeline
+
+**2-email enrichment** that runs automatically after every booking via Next.js `after()`:
+
+**Email 1 — Signal Analysis (zero-cost, <2s, guaranteed delivery):**
+All four analyzers run in parallel via `Promise.all`:
+- `analyzeEmail()` — domain classification (personal/corporate/high-value finance), handle pattern (firstname.lastname, username, initials), professional score (0-30)
+- `analyzePhone()` — area code lookup against high-wealth (Manhattan, Beverly Hills, Palo Alto, Palm Beach, etc.) and major metro sets; international country code wealth scoring (UAE, Singapore, Switzerland = +12); geo inference
+- `analyzeBehavior()` — repeat booker check (queries prior bookings), lead time analysis, booking hour/day (business hours = +3), behavior score (0-16)
+- `analyzeKeywords()` — scans notes + custom form answers against 5 signal groups: capital signals ("accredited", "net worth", "deploy"), action signals ("interested", "get started", "next steps"), diversifier signals ("portfolio", "allocat", "asset class"), long-term signals ("patient", "wealth preservation"), red flags ("student", "quick money", "guaranteed return"). Score -10 to 38.
+
+**Tier 1 Score:** Baseline 45 + scaled signal boost (0-45) - red flag penalty. Range 10-100. Philosophy: booking a call is already above average.
+
+**Form answer resolution** (`resolveFormAnswers()`):
+- Maps `customAnswers` (keyed by opaque IDs like `q_123_abc`) to `ResolvedAnswer[]` using `bookingQuestions` metadata
+- Each resolved answer has `{ label, value, type }` — e.g., `{ label: "Investment horizon", value: "5+ years", type: "dropdown" }`
+- Checkbox values rendered as "Yes"/"No"
+- Used in both Email 1 ("What They Told Us" section) and Claude prompt (labels instead of raw JSON)
+
+**Rule-based talking points** (`generateTalkingPoints()`):
+- Generates 3-6 talking points from signals without any AI cost. Caps at 6.
+- Sources: meeting type openers, form answer highlights, capital/diversifier/action signal interpretation, repeat booker context, high-wealth location, corporate email, red flag warnings
+- Falls back to "Standard lead — start with discovery" if no signals produce points
+- Used in Email 1; Claude talking points override these in Email 2 when available
+
+**Email 2 — Claude Sonnet + web_search (Pro tier only, ~$0.01/booking):**
+- **Haiku disabled** — not enough value without web search. Only Claude Sonnet with `web_search` tool (max 3 searches) when 15s+ remaining.
+- Sonnet searches for the person online (LinkedIn, professional background). Full person intel in email.
+- Claude prompt receives resolved form answers with labels (not raw JSON with opaque IDs)
+- Returns JSON: `qualification_score`, `summary`, `talking_points`, `risk_flags`, `recommended_approach`, `person_profile`, `person_confidence`, `linkedin_url`
+- Meeting type context adjusts the analysis (e.g., `portfolio_review` = existing investor, don't explain basics)
+
+**Scoring tiers:** 75-100 "Ready to Invest", 60-74 "Strong Prospect", 45-59 "Standard Lead", <45 "Early Stage"
+
+**Approach guide:** `direct` (jump to offerings), `consultative` (discover goals), `educational` (explain how it works), `cautious` (qualify budget early)
+
+**Serverless pattern:** Enrichment runs inline via Next.js `after()` API in the booking function — no separate function invocation, no env var dependency. The `after()` callback executes after the HTTP response is sent but within the same function lifecycle. Time budget calculated from request start (not pipeline start) to account for booking handler overhead (~2-3s).
+
+**Fallback endpoint:** `/api/enrichment/run` kept with `maxDuration=60` for cron-triggered retries of failed enrichments. Auth via `CRON_SECRET` bearer token. Accepts `bookingQuestions` in body for form answer resolution.
+
+**Gotcha — `after()` on Netlify:** The `after()` callback shares the function's total timeout (10s free, 26s Pro). Booking handler uses ~2-3s, leaving ~7s (free) or ~23s (Pro) for enrichment. Free tier: signal analysis + Email 1 with talking points (~2s total). Pro tier: signal analysis + Email 1 + Claude Sonnet+web_search + Email 2 (~18-22s total). Claude only called when 15s+ remaining.
 
 ### `src/lib/webhooks.ts` — HMAC-Signed Delivery
 

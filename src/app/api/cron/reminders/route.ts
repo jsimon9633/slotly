@@ -163,12 +163,86 @@ export async function GET(request: NextRequest) {
       console.error("[Cron/OAuth] Token health check error:", err instanceof Error ? err.message : err);
     }
 
+    // ── Enrichment Retry ──
+    // Retry enrichments stuck in "processing" for >5 minutes or still "pending"
+    let enrichmentRetries = 0;
+    try {
+      const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
+      const { data: stuckEnrichments } = await supabaseAdmin
+        .from("booking_enrichments")
+        .select("id, booking_id, enrichment_status, created_at")
+        .or(`enrichment_status.eq.pending,and(enrichment_status.eq.processing,created_at.lt.${fiveMinAgo})`)
+        .limit(10);
+
+      if (stuckEnrichments && stuckEnrichments.length > 0) {
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.URL || "";
+
+        for (const enrichment of stuckEnrichments) {
+          try {
+            // Fetch the booking data needed for re-enrichment
+            const { data: booking } = await supabaseAdmin
+              .from("bookings")
+              .select(`
+                id, invitee_name, invitee_email, invitee_phone, invitee_notes,
+                custom_answers, start_time, timezone,
+                event_types ( title ),
+                team_members ( name, email )
+              `)
+              .eq("id", enrichment.booking_id)
+              .single();
+
+            if (!booking) continue;
+
+            const eventType = booking.event_types as any;
+            const teamMember = booking.team_members as any;
+            if (!eventType || !teamMember) continue;
+
+            // Delete the stuck enrichment row so the pipeline can recreate it
+            await supabaseAdmin
+              .from("booking_enrichments")
+              .delete()
+              .eq("id", enrichment.id);
+
+            // Re-trigger enrichment
+            if (CRON_SECRET && siteUrl) {
+              await fetch(`${siteUrl}/api/enrichment/run`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${CRON_SECRET}`,
+                },
+                body: JSON.stringify({
+                  bookingId: booking.id,
+                  inviteeName: booking.invitee_name,
+                  inviteeEmail: booking.invitee_email,
+                  inviteePhone: booking.invitee_phone,
+                  inviteeNotes: booking.invitee_notes,
+                  customAnswers: booking.custom_answers,
+                  startTime: booking.start_time,
+                  timezone: booking.timezone,
+                  eventTitle: eventType.title,
+                  teamMemberName: teamMember.name,
+                  teamMemberEmail: teamMember.email,
+                }),
+              });
+              enrichmentRetries++;
+            }
+          } catch (retryErr) {
+            console.error(`[Cron/Enrichment] Retry failed for enrichment ${enrichment.id}:`, retryErr instanceof Error ? retryErr.message : retryErr);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Cron/Enrichment] Retry check error:", err instanceof Error ? err.message : err);
+    }
+
     return NextResponse.json({
       sent,
       checked: bookings.length,
       workflows_executed: workflowsExecuted,
       oauth_tokens_checked: tokensChecked,
       oauth_tokens_revoked: tokensRevoked,
+      enrichment_retries: enrichmentRetries,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {

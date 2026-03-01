@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createCalendarEvent } from "@/lib/google-calendar";
@@ -19,6 +19,8 @@ import {
 } from "@/lib/api-errors";
 import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
 import { executeInstantWorkflows } from "@/lib/workflows";
+import { runEnrichmentPipeline } from "@/lib/enrichment";
+import type { EnrichmentInput, BookingQuestion } from "@/lib/types";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -44,6 +46,8 @@ const MAX_NOTES_LENGTH = 1000;
 const MAX_EMAIL_LENGTH = 254;
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
+
   // Rate limiting
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -148,7 +152,7 @@ export async function POST(request: NextRequest) {
     // Get event type
     const { data: eventType, error: etError } = await supabaseAdmin
       .from("event_types")
-      .select("id, title, duration_minutes, max_daily_bookings, team_id, booking_questions")
+      .select("id, title, duration_minutes, max_daily_bookings, team_id, booking_questions, meeting_type")
       .eq("slug", eventTypeSlug)
       .eq("is_active", true)
       .single();
@@ -357,7 +361,7 @@ export async function POST(request: NextRequest) {
       // Non-blocking — booking is saved, just round-robin tracking is off
     }
 
-    // Send confirmation + team member alert emails
+    // Send confirmation + team member alert emails (awaited — must complete before response)
     try {
       await sendBookingEmails({
         inviteeName: cleanName,
@@ -408,6 +412,35 @@ export async function POST(request: NextRequest) {
       end_time: end.toISOString(),
       timezone,
     }).catch((err) => console.error("[Booking] Webhook fire failed:", err instanceof Error ? err.message : err));
+
+    // AI enrichment pipeline — runs AFTER response via Next.js after() API
+    // This keeps the function alive after the booking response is sent,
+    // eliminating the need for fetch-to-self or separate function invocations.
+    const enrichmentInput: EnrichmentInput = {
+      bookingId: booking.id,
+      inviteeName: cleanName,
+      inviteeEmail: cleanEmail,
+      inviteePhone: cleanPhone,
+      inviteeNotes: cleanNotes,
+      customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
+      bookingQuestions: eventType.booking_questions && Array.isArray(eventType.booking_questions) && eventType.booking_questions.length > 0
+        ? (eventType.booking_questions as BookingQuestion[])
+        : null,
+      startTime: start.toISOString(),
+      timezone,
+      eventTitle: eventType.title,
+      teamMemberName: teamMember.name,
+      teamMemberEmail: teamMember.email,
+      meetingType: eventType.meeting_type || null,
+    };
+
+    after(async () => {
+      try {
+        await runEnrichmentPipeline(enrichmentInput, requestStartedAt);
+      } catch (err) {
+        console.error("[Booking] Enrichment pipeline failed:", err instanceof Error ? err.message : err);
+      }
+    });
 
     // Return confirmation with partial failure warnings
     return successWithWarnings(

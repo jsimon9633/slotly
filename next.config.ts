@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
   // Reduce JS bundle size by excluding server-only packages from client
-  serverExternalPackages: ["googleapis", "@sendgrid/mail", "resend"],
+  serverExternalPackages: ["googleapis", "@sendgrid/mail", "resend", "@anthropic-ai/sdk"],
 
   async headers() {
     return [

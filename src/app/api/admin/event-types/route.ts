@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { unauthorized, badRequest, serverError, sanitizeString } from "@/lib/api-errors";
+import { MEETING_TYPE_OPTIONS } from "@/lib/meeting-type-questions";
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "slotly-jsimon9633-2026";
 
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from("event_types")
-      .select("id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
+      .select("id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions, meeting_type")
       .in("id", etIds)
       .order("title");
 
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
   // No team filter — return all event types with their team associations
   const { data, error } = await supabaseAdmin
     .from("event_types")
-    .select("id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions")
+    .select("id, slug, title, description, duration_minutes, color, is_active, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions, meeting_type")
     .order("title");
 
   if (error) {
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { title, duration_minutes, color, description } = body;
+  const { title, duration_minutes, color, description, meeting_type: mtBody } = body;
 
   if (!title || typeof title !== "string" || title.trim().length < 2) {
     return badRequest("Title is required (min 2 characters)");
@@ -127,8 +128,9 @@ export async function POST(request: NextRequest) {
       min_notice_hours: 1,
       max_daily_bookings: null,
       max_advance_days: 10,
+      meeting_type: mtBody || null,
     })
-    .select("id, slug, title, duration_minutes, color, is_active")
+    .select("id, slug, title, duration_minutes, color, is_active, meeting_type")
     .single();
 
   if (error) {
@@ -156,7 +158,7 @@ export async function PATCH(request: NextRequest) {
     return badRequest("Invalid request body");
   }
 
-  const { id, title, description, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions } = body;
+  const { id, title, description, is_locked, before_buffer_mins, after_buffer_mins, min_notice_hours, max_daily_bookings, max_advance_days, booking_questions, meeting_type } = body;
 
   if (!id || typeof id !== "string") {
     return badRequest("Missing event type id");
@@ -253,6 +255,14 @@ export async function PATCH(request: NextRequest) {
       }
     }
     updates.booking_questions = booking_questions;
+  }
+
+  if (meeting_type !== undefined) {
+    const validMeetingTypes: (string | null)[] = [...MEETING_TYPE_OPTIONS.map(o => o.value), null];
+    if (!validMeetingTypes.includes(meeting_type)) {
+      return badRequest("Invalid meeting type");
+    }
+    updates.meeting_type = meeting_type;
   }
 
   if (Object.keys(updates).length === 0) {
