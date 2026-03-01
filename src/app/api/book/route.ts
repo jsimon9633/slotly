@@ -20,7 +20,7 @@ import {
 import { calculateNoShowScore, getRiskTier } from "@/lib/no-show-score";
 import { executeInstantWorkflows } from "@/lib/workflows";
 import { runEnrichmentPipeline } from "@/lib/enrichment";
-import type { EnrichmentInput } from "@/lib/types";
+import type { EnrichmentInput, BookingQuestion } from "@/lib/types";
 
 // Simple in-memory rate limiter (per IP, resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -424,7 +424,7 @@ export async function POST(request: NextRequest) {
       inviteeNotes: cleanNotes,
       customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
       bookingQuestions: eventType.booking_questions && Array.isArray(eventType.booking_questions) && eventType.booking_questions.length > 0
-        ? (eventType.booking_questions as Array<{ id: string; type: "text" | "dropdown" | "checkbox"; label: string; required: boolean; options?: string[] }>)
+        ? (eventType.booking_questions as BookingQuestion[])
         : null,
       startTime: start.toISOString(),
       timezone,

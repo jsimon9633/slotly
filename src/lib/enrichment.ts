@@ -642,7 +642,7 @@ async function synthesizeWithClaude(
   behaviorSignals: BehaviorSignals,
   keywordSignals: KeywordSignals,
   tier1Score: number,
-  useWebSearch: boolean,
+  resolvedAnswers: ResolvedAnswer[],
 ): Promise<ClaudeResult | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -650,8 +650,7 @@ async function synthesizeWithClaude(
     return null;
   }
 
-  const timeout = useWebSearch ? 25_000 : 8_000;
-  const client = new Anthropic({ apiKey, timeout });
+  const client = new Anthropic({ apiKey, timeout: 25_000 });
 
   const allPositiveSignals = [
     ...keywordSignals.capital_signals.map((s) => `[capital] ${s}`),
@@ -665,16 +664,12 @@ async function synthesizeWithClaude(
     ? `${input.meetingType} (${MEETING_TYPE_CONTEXT[input.meetingType]})`
     : "initial_consultation (First-time prospect — discovery call)";
 
-  const searchInstructions = useWebSearch
-    ? `\n\nIMPORTANT: Use web_search to research this person BEFORE writing your JSON response. Search for their name + company/domain to find their LinkedIn, role, and background. This info is critical for the salesperson.`
-    : `\n\nNOTE: Web search is not available for this request. Base your analysis on the signal data and form answers provided. Set person_profile to null and person_confidence to "none".`;
-
   const userMessage = `Meeting booked for: ${input.eventTitle}
 Meeting type: ${meetingTypeDesc}
 Scheduled: ${input.startTime}
 Lead time: ${behaviorSignals.lead_time_hours} hours from now
 
-PERSON${useWebSearch ? " (search for them online before writing your analysis)" : ""}:
+PERSON (search for them online before writing your analysis):
 Name: ${input.inviteeName}
 Email: ${input.inviteeEmail}
 Phone: ${input.inviteePhone || "Not provided"}
@@ -689,9 +684,11 @@ ${allPositiveSignals.length > 0 ? `- Positive signals in notes: ${allPositiveSig
 ${keywordSignals.red_flags.length > 0 ? `- Red flags: ${keywordSignals.red_flags.join(", ")}` : ""}
 
 THEIR NOTES/TOPIC: ${input.inviteeNotes || "None provided"}
-${input.customAnswers && input.bookingQuestions ? `\nFORM ANSWERS:\n${resolveFormAnswers(input.customAnswers, input.bookingQuestions).map((a) => `- ${a.label}: ${a.value}`).join("\n")}` : input.customAnswers ? `\nFORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
+${resolvedAnswers.length > 0 ? `\nFORM ANSWERS:\n${resolvedAnswers.map((a) => `- ${a.label}: ${a.value}`).join("\n")}` : ""}
 
-SIGNAL SCORE: ${tier1Score}/100${searchInstructions}`;
+SIGNAL SCORE: ${tier1Score}/100
+
+IMPORTANT: Use web_search to research this person BEFORE writing your JSON response. Search for their name + company/domain to find their LinkedIn, role, and background. This info is critical for the salesperson.`;
 
   try {
     const model = "claude-sonnet-4-5-20250514";
@@ -872,7 +869,7 @@ export async function runEnrichmentPipeline(
     if (remainingForClaude > 15000) {
       console.log(`[Enrichment] Claude Sonnet + web_search — ${remainingForClaude}ms budget`);
       claudeResult = await synthesizeWithClaude(
-        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, true,
+        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, resolvedAnswers,
       );
       if (claudeResult) {
         totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
