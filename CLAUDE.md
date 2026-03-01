@@ -238,18 +238,25 @@ src/
 - **Workflow automations** — trigger-based email/SMS on booking events (on_booking, on_cancel, on_reschedule, before_meeting, after_meeting)
 - **SMS settings** — SMS notification configuration (beta)
 
-### AI Meeting Prep (Session 5)
-- **Enrichment pipeline** (`src/lib/enrichment.ts`) — runs automatically after every booking. Two-phase: instant signal analysis (zero-cost) → Claude AI synthesis with web search (optional, ~$0.01/booking)
+### AI Meeting Prep (Session 5+)
+- **Enrichment pipeline** (`src/lib/enrichment.ts`) — runs automatically after every booking. Two-phase: instant signal analysis (zero-cost) → Claude Sonnet AI synthesis with web search (Pro tier only, ~$0.01/booking)
 - **Signal analysis** — analyzes email domain (personal/corporate/high-value finance), phone area code (high-wealth/metro/international), booking behavior (repeat booker, lead time, business hours), keyword signals in notes/form answers (capital, action, diversifier, long-term, red flags)
+- **Form answer resolution** — `resolveFormAnswers()` maps opaque question IDs (e.g., `q_123_abc`) to human-readable label+value pairs using `bookingQuestions` metadata. Displayed in email as "What They Told Us" section. `EnrichmentInput` carries both `customAnswers` and `bookingQuestions` (with labels, types)
+- **Rule-based talking points** — `generateTalkingPoints()` produces 3-6 contextual talking points from signals without any AI cost:
+  - Meeting type-specific openers (initial consultation vs portfolio review vs follow-up)
+  - Form answer highlights: surfaces what the invitee actually typed with context
+  - Capital/diversifier/action signal interpretation with specific conversation suggestions
+  - Repeat booker, high-wealth location, corporate email insights
+  - Red flag warnings with qualification guidance
 - **Tier 1 scoring** — positive-baseline philosophy: starts at 45 (they booked = above average), adds signal boost scaled 0-45 points, subtracts only for genuine red flags. Range 10-100.
-- **Claude AI synthesis** — Claude Sonnet with `web_search` tool. Searches for the person online (LinkedIn, professional background), generates qualification score, summary, talking points, risk flags, recommended approach (direct/consultative/educational/cautious), person profile with confidence level
-- **Meeting prep email** (`src/lib/enrichment-email.ts`) — rich HTML email sent to the team member who got booked. Includes: qualification badge, AI summary, person intel with LinkedIn link, talking points, risk flags, recommended approach, invitee details, full signal analysis breakdown. Optional CC via `ENRICHMENT_CC_EMAIL` env var
+- **Claude AI synthesis** — Claude Sonnet only, always with `web_search` tool (Haiku path disabled — not enough value without web search). Searches for the person online (LinkedIn, professional background), generates qualification score, summary, talking points, risk flags, recommended approach (direct/consultative/educational/cautious), person profile with confidence level. Claude prompt receives resolved form answers with labels (not raw JSON with opaque IDs)
+- **Meeting prep email** (`src/lib/enrichment-email.ts`) — rich HTML email sent to the team member who got booked. Includes: qualification badge, "What They Told Us" form answers section, rule-based talking points, invitee details, full signal analysis breakdown. When Claude completes: adds AI summary, person intel with LinkedIn link, Claude talking points (override rule-based), risk flags, recommended approach. Optional CC via `ENRICHMENT_CC_EMAIL` env var
 - **Meeting type context** — admin-configurable per event type (`meeting_type` column): `initial_consultation`, `portfolio_review`, `follow_up`, `missed_follow_up`, `event_follow_up`. Adjusts Claude's analysis context and talking points for the meeting scenario
 - **Meeting type admin UI** — dropdown in event type settings to assign meeting types
 - **Investor-intent booking form** — topic suggestion chips (e.g., "Learn about art investing", "Portfolio diversification") and note starters. Chip text fed into enrichment keyword analysis
-- **2-email architecture** — uses Next.js `after()` API to run enrichment inline after booking response (no fetch-to-self, no CRON_SECRET dependency). Email 1 (signal-only prep) sent within ~2s. Email 2 (AI update with talking points, person intel, approach) sent after Claude completes (~5-8s). Booking response returns in <2s.
-- **Time-aware Claude** — pipeline calculates remaining time from HTTP request start. Free tier (10s): Haiku without web search (~3-5s). Pro tier (26s): Sonnet with web_search tool (~15-20s for LinkedIn/professional background lookup). Falls back gracefully if timeout is tight.
-- **Graceful degradation** — if `ANTHROPIC_API_KEY` not set, Claude skipped but Email 1 (signal analysis) still sent. If Claude times out, Email 1 was already delivered. `/api/enrichment/run` kept as fallback endpoint for cron retries (has its own function timeout).
+- **2-email architecture** — uses Next.js `after()` API to run enrichment inline after booking response (no fetch-to-self, no CRON_SECRET dependency). Email 1 (signal prep with form answers + talking points) sent within ~2s. Email 2 (AI update with person intel, Claude talking points) sent only on Pro tier after Claude+web_search completes (~15-20s). Booking response returns in <2s.
+- **Time-aware Claude** — pipeline calculates remaining time from HTTP request start. Only runs Claude Sonnet+web_search when 15s+ remaining (Pro tier or `/api/enrichment/run` endpoint). On free tier (10s), signal email with talking points is the only email — no Claude call.
+- **Graceful degradation** — if `ANTHROPIC_API_KEY` not set, Claude skipped but signal email (with form answers + talking points) still sent. If Claude times out, Email 1 was already delivered. `/api/enrichment/run` kept as fallback endpoint for cron retries (has its own function timeout).
 
 ### Intelligence Features
 - **Smart scheduling** (`src/lib/smart-scheduling.ts`) — surfaces "Popular" and "Recommended" time badges based on industry defaults (Tue-Thu, 10am-2pm) with planned upgrade to booking-history-based intelligence once enough data accumulates
@@ -305,6 +312,7 @@ All resolved:
 ## Features — What's Not Built Yet
 
 ### High Priority
+- **Investor psychology knowledge base** — bake enrichment research (investor psychology, alternative investment interest patterns, typical investment behaviors) into a structured knowledge store. This would let the signal email generate a narrative "AI Summary" paragraph without needing Claude for every booking — drawing on domain expertise embedded in the codebase rather than making an API call. Could be a structured JSON/TS module or a Supabase table of investor archetypes + behavior patterns.
 - **Email template customization** — allow admins to customize confirmation/reminder email templates in the UI
 - **Multi-language support** — i18n for booking pages
 
@@ -379,11 +387,13 @@ Enrichment pipeline (runs via after() in same function, after response sent):
   → upserts enrichment row to "processing"
   → parallel signal analysis: email, phone, behavior, keywords (zero-cost, <200ms)
   → computes tier1_score (positive-baseline 45 + signal boost)
-  → sends Email 1: signal-only meeting prep to team member (~500ms)
+  → resolves form answers: maps question IDs to labels via bookingQuestions
+  → generates rule-based talking points from signals + form answers + meeting type
+  → sends Email 1: signal prep with form answers + talking points (~500ms)
   → calculates remaining time budget from request start
-  → if >15s: Claude Sonnet with web_search (Pro tier)
-  → if >3s: Claude Haiku without web search (free tier)
-  → if Claude completed: sends Email 2: AI update with talking points + person intel
+  → if >15s: Claude Sonnet + web_search (Pro tier — searches LinkedIn etc.)
+  → if <15s: Claude skipped (free tier — Email 1 is the only email)
+  → if Claude completed: sends Email 2: AI update with person intel + Claude talking points
   → saves all results to booking_enrichments
 ```
 
@@ -574,8 +584,8 @@ All emails include Reschedule + Cancel buttons via `manageButtonsHtml()` (except
 
 **Pattern:** `build*Email()` returns `{ subject, html }`, then `send*Emails()` fires both parties' emails in parallel via `Promise.allSettled`. Individual `sendEmail()` calls go through SendGrid, with graceful fallback if `SENDGRID_API_KEY` is unset.
 
-6. **Meeting prep email 1** → team member (subject: "Meeting Prep: {name} — {event} ({date})") — signal-only prep with qualification badge, invitee details, full signal analysis breakdown. Sent within ~2s of booking.
-7. **Meeting prep email 2** → team member (subject: "AI Prep Ready: {name} — {event} ({date})") — AI update with summary, person intel, talking points, risk flags, recommended approach. Sent ~5-8s after booking (when Claude completes). Both from `enrichment-email.ts`. Optional CC via `ENRICHMENT_CC_EMAIL`.
+6. **Meeting prep email 1** → team member (subject: "Meeting Prep: {name} — {event} ({date})") — signal prep with qualification badge, "What They Told Us" form answers (purple card with resolved question labels+values), rule-based talking points, invitee details, full signal analysis breakdown. Sent within ~2s of booking.
+7. **Meeting prep email 2** → team member (subject: "AI Prep Ready: {name} — {event} ({date})") — AI update with summary, person intel, Claude talking points (override rule-based), risk flags, recommended approach. Pro tier only (~15-20s after booking). Both from `enrichment-email.ts`. Optional CC via `ENRICHMENT_CC_EMAIL`.
 
 ### `src/lib/enrichment.ts` — AI Meeting Prep Pipeline
 
@@ -590,10 +600,22 @@ All four analyzers run in parallel via `Promise.all`:
 
 **Tier 1 Score:** Baseline 45 + scaled signal boost (0-45) - red flag penalty. Range 10-100. Philosophy: booking a call is already above average.
 
-**Email 2 — Claude AI Synthesis (optional, ~$0.01/booking):**
-- **Time-aware model selection:** Pipeline receives `functionStartedAt` from booking handler to calculate real remaining time. If >15s remain (Pro tier): Sonnet with `web_search` tool (max 3 searches). If 3-15s remain (free tier): Haiku without web search. If <3s: skipped entirely.
-- **With web search (Pro):** Sonnet searches for the person online (LinkedIn, professional background). Full person intel in email.
-- **Without web search (free):** Haiku analyzes signal data only. Talking points + approach guide still generated, but no person profile/LinkedIn.
+**Form answer resolution** (`resolveFormAnswers()`):
+- Maps `customAnswers` (keyed by opaque IDs like `q_123_abc`) to `ResolvedAnswer[]` using `bookingQuestions` metadata
+- Each resolved answer has `{ label, value, type }` — e.g., `{ label: "Investment horizon", value: "5+ years", type: "dropdown" }`
+- Checkbox values rendered as "Yes"/"No"
+- Used in both Email 1 ("What They Told Us" section) and Claude prompt (labels instead of raw JSON)
+
+**Rule-based talking points** (`generateTalkingPoints()`):
+- Generates 3-6 talking points from signals without any AI cost. Caps at 6.
+- Sources: meeting type openers, form answer highlights, capital/diversifier/action signal interpretation, repeat booker context, high-wealth location, corporate email, red flag warnings
+- Falls back to "Standard lead — start with discovery" if no signals produce points
+- Used in Email 1; Claude talking points override these in Email 2 when available
+
+**Email 2 — Claude Sonnet + web_search (Pro tier only, ~$0.01/booking):**
+- **Haiku disabled** — not enough value without web search. Only Claude Sonnet with `web_search` tool (max 3 searches) when 15s+ remaining.
+- Sonnet searches for the person online (LinkedIn, professional background). Full person intel in email.
+- Claude prompt receives resolved form answers with labels (not raw JSON with opaque IDs)
 - Returns JSON: `qualification_score`, `summary`, `talking_points`, `risk_flags`, `recommended_approach`, `person_profile`, `person_confidence`, `linkedin_url`
 - Meeting type context adjusts the analysis (e.g., `portfolio_review` = existing investor, don't explain basics)
 
@@ -603,9 +625,9 @@ All four analyzers run in parallel via `Promise.all`:
 
 **Serverless pattern:** Enrichment runs inline via Next.js `after()` API in the booking function — no separate function invocation, no env var dependency. The `after()` callback executes after the HTTP response is sent but within the same function lifecycle. Time budget calculated from request start (not pipeline start) to account for booking handler overhead (~2-3s).
 
-**Fallback endpoint:** `/api/enrichment/run` kept with `maxDuration=60` for cron-triggered retries of failed enrichments. Auth via `CRON_SECRET` bearer token.
+**Fallback endpoint:** `/api/enrichment/run` kept with `maxDuration=60` for cron-triggered retries of failed enrichments. Auth via `CRON_SECRET` bearer token. Accepts `bookingQuestions` in body for form answer resolution.
 
-**Gotcha — `after()` on Netlify:** The `after()` callback shares the function's total timeout (10s free, 26s Pro). Booking handler uses ~2-3s, leaving ~7s (free) or ~23s (Pro) for enrichment. The pipeline must complete ALL work (signals + email 1 + Claude + email 2 + DB saves) within this window. Time-aware Claude model selection ensures the pipeline fits within the available budget.
+**Gotcha — `after()` on Netlify:** The `after()` callback shares the function's total timeout (10s free, 26s Pro). Booking handler uses ~2-3s, leaving ~7s (free) or ~23s (Pro) for enrichment. Free tier: signal analysis + Email 1 with talking points (~2s total). Pro tier: signal analysis + Email 1 + Claude Sonnet+web_search + Email 2 (~18-22s total). Claude only called when 15s+ remaining.
 
 ### `src/lib/webhooks.ts` — HMAC-Signed Delivery
 
