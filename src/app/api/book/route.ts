@@ -423,6 +423,9 @@ export async function POST(request: NextRequest) {
       inviteePhone: cleanPhone,
       inviteeNotes: cleanNotes,
       customAnswers: Object.keys(cleanCustomAnswers).length > 0 ? cleanCustomAnswers : null,
+      bookingQuestions: eventType.booking_questions && Array.isArray(eventType.booking_questions) && eventType.booking_questions.length > 0
+        ? (eventType.booking_questions as Array<{ id: string; type: "text" | "dropdown" | "checkbox"; label: string; required: boolean; options?: string[] }>)
+        : null,
       startTime: start.toISOString(),
       timezone,
       eventTitle: eventType.title,

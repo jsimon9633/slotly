@@ -6,7 +6,7 @@ import type {
   BehaviorSignals,
   KeywordSignals,
 } from "@/lib/types";
-import type { ClaudeResult } from "@/lib/enrichment";
+import type { ClaudeResult, ResolvedAnswer } from "@/lib/enrichment";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.EMAIL_FROM || "help@masterworks.com";
@@ -27,6 +27,8 @@ interface MeetingPrepEmailData {
   keywordSignals: KeywordSignals;
   tier1Score: number;
   claudeResult: ClaudeResult | null;
+  resolvedAnswers?: ResolvedAnswer[];
+  talkingPoints?: string[];
 }
 
 // ─── Helpers ────────────────────────────────────────────
@@ -90,7 +92,7 @@ function getConfidenceBadge(confidence: string): { label: string; color: string;
 // ─── Email Builder ──────────────────────────────────────
 
 function buildMeetingPrepEmail(data: MeetingPrepEmailData): { subject: string; html: string } {
-  const { input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, claudeResult } = data;
+  const { input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, claudeResult, resolvedAnswers, talkingPoints } = data;
 
   const score = claudeResult?.qualification_score ?? tier1Score;
   const badge = getQualBadge(score);
@@ -110,12 +112,28 @@ function buildMeetingPrepEmail(data: MeetingPrepEmailData): { subject: string; h
 
   const subject = `Meeting Prep: ${input.inviteeName} — ${input.eventTitle} (${dateShort})`;
 
-  // Build HTML
-  const talkingPointsHtml = claudeResult?.talking_points?.length
-    ? claudeResult.talking_points.map((tp) =>
+  // Build HTML — use Claude talking points if available, otherwise rule-based
+  const tpSource = claudeResult?.talking_points?.length
+    ? claudeResult.talking_points
+    : (talkingPoints?.length ? talkingPoints : null);
+
+  const talkingPointsHtml = tpSource
+    ? tpSource.map((tp) =>
         `<tr><td style="padding:4px 0;font-size:14px;color:#374151;">• ${escapeHtml(tp)}</td></tr>`
       ).join("")
-    : `<tr><td style="padding:4px 0;font-size:14px;color:#6b7280;">No AI talking points available — use signal analysis below.</td></tr>`;
+    : `<tr><td style="padding:4px 0;font-size:14px;color:#6b7280;">Standard lead — start with discovery questions.</td></tr>`;
+
+  // Form answers section
+  const formAnswersHtml = resolvedAnswers?.length
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="background:#faf5ff;border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid #7c3aed;">
+        <tr>
+          <td style="font-size:13px;font-weight:600;color:#7c3aed;padding-bottom:8px;">What They Told Us</td>
+        </tr>
+        ${resolvedAnswers.map((a) =>
+          `<tr><td style="font-size:14px;color:#374151;padding:4px 0;"><strong>${escapeHtml(a.label)}:</strong> ${a.type === "checkbox" ? a.value : escapeHtml(a.value)}</td></tr>`
+        ).join("")}
+      </table>`
+    : "";
 
   const riskFlagsHtml = claudeResult?.risk_flags?.length
     ? `<table width="100%" cellpadding="0" cellspacing="0" style="background:#fef2f2;border-radius:8px;padding:16px;margin-bottom:20px;">
@@ -175,6 +193,8 @@ function buildMeetingPrepEmail(data: MeetingPrepEmailData): { subject: string; h
         </td>
       </tr>
     </table>
+
+    ${formAnswersHtml}
 
     ${claudeResult?.summary ? `
     <!-- AI Summary -->

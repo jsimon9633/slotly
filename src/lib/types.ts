@@ -206,6 +206,7 @@ export interface EnrichmentInput {
   inviteePhone: string | null;
   inviteeNotes: string | null;
   customAnswers: Record<string, any> | null;
+  bookingQuestions: BookingQuestion[] | null;
   startTime: string;
   timezone: string;
   eventTitle: string;

@@ -392,6 +392,150 @@ export function analyzeKeywords(
   };
 }
 
+// ─── Form Answer Resolution ─────────────────────────────
+
+export interface ResolvedAnswer {
+  label: string;
+  value: string;
+  type: "text" | "dropdown" | "checkbox";
+}
+
+/** Resolve opaque question IDs to human-readable label+value pairs */
+export function resolveFormAnswers(
+  customAnswers: Record<string, any> | null,
+  bookingQuestions: Array<{ id: string; type: string; label: string }> | null,
+): ResolvedAnswer[] {
+  if (!customAnswers || !bookingQuestions) return [];
+
+  const resolved: ResolvedAnswer[] = [];
+  const questionMap = new Map(bookingQuestions.map((q) => [q.id, q]));
+
+  for (const [qId, value] of Object.entries(customAnswers)) {
+    const question = questionMap.get(qId);
+    if (!question) continue;
+
+    let displayValue: string;
+    const qType = question.type as "text" | "dropdown" | "checkbox";
+    if (qType === "checkbox") {
+      displayValue = value === true ? "Yes" : "No";
+    } else {
+      displayValue = String(value).trim();
+    }
+
+    if (displayValue) {
+      resolved.push({ label: question.label, value: displayValue, type: qType });
+    }
+  }
+
+  return resolved;
+}
+
+// ─── Rule-Based Talking Points ──────────────────────────
+
+const MEETING_TYPE_OPENERS: Record<string, string> = {
+  initial_consultation: "Ask what sparked their interest in art investing — their answer reveals if they're a diversifier (financial) or art fan (emotional).",
+  portfolio_review: "Start by asking how their current holdings are performing — they're already an investor, so go straight to new opportunities.",
+  follow_up: "They rebooked — ask what's changed since last time. Something shifted their thinking.",
+  missed_follow_up: "Be warm — they no-showed but came back. Ask what held them back, not why they missed.",
+  event_follow_up: "Reference the event they attended. Ask what resonated most — it reveals their investment angle.",
+};
+
+export function generateTalkingPoints(
+  emailAnalysis: EmailAnalysis,
+  phoneAnalysis: PhoneAnalysis,
+  behaviorSignals: BehaviorSignals,
+  keywordSignals: KeywordSignals,
+  resolvedAnswers: ResolvedAnswer[],
+  meetingType: string | null | undefined,
+  inviteeNotes: string | null,
+): string[] {
+  const points: string[] = [];
+
+  // Meeting type opener
+  if (meetingType && MEETING_TYPE_OPENERS[meetingType]) {
+    points.push(MEETING_TYPE_OPENERS[meetingType]);
+  }
+
+  // Form answer insights — most valuable talking points come from what they told us
+  for (const answer of resolvedAnswers) {
+    if (answer.type === "checkbox") continue; // skip yes/no checkboxes
+    if (answer.value.length < 3) continue; // skip very short answers
+
+    // Generate a contextual point based on what they said
+    points.push(`They answered "${answer.label}" with: "${answer.value}" — use this to personalize the conversation.`);
+  }
+
+  // Notes insight
+  if (inviteeNotes && inviteeNotes.length > 10) {
+    points.push(`Their notes: "${inviteeNotes.slice(0, 150)}" — reference this to show you read their message.`);
+  }
+
+  // Capital signals → they have money, get specific
+  if (keywordSignals.capital_signals.length > 0) {
+    points.push(
+      `Capital language detected (${keywordSignals.capital_signals.slice(0, 3).join(", ")}). They likely have investable assets — ask about allocation goals and timeline.`
+    );
+  }
+
+  // Diversifier → ideal customer, talk portfolio fit
+  if (keywordSignals.diversifier_signals.length > 0) {
+    points.push(
+      "They're thinking about diversification — show how art is uncorrelated to stocks/bonds (0.04 correlation to S&P 500)."
+    );
+  }
+
+  // Action signals → ready to move
+  if (keywordSignals.action_signals.length > 0 && keywordSignals.capital_signals.length > 0) {
+    points.push(
+      "Action intent + capital signals = hot lead. Be ready to walk through specific available offerings."
+    );
+  }
+
+  // Repeat booker
+  if (behaviorSignals.is_repeat_booker) {
+    points.push(
+      `Repeat booker (${behaviorSignals.prior_bookings_count} prior). Reference their previous interaction — they're coming back for a reason.`
+    );
+  }
+
+  // Long-term mindset
+  if (keywordSignals.long_term_signals.length > 0) {
+    points.push(
+      "Long-term mindset detected. Emphasize the 3-7 year hold period as a feature, not a limitation. Art is wealth preservation."
+    );
+  }
+
+  // High-wealth location
+  if (phoneAnalysis.wealth_indicator === "high" && phoneAnalysis.geo_inference) {
+    points.push(
+      `Located in ${phoneAnalysis.geo_inference} — high-wealth area. Likely sophisticated investor.`
+    );
+  }
+
+  // Corporate email with company
+  if (!emailAnalysis.is_personal && emailAnalysis.company_inference) {
+    points.push(
+      `Corporate email from ${emailAnalysis.company_inference} — may be investing through work or has a professional finance background.`
+    );
+  }
+
+  // Red flags → handle with care
+  if (keywordSignals.red_flags.length > 0) {
+    points.push(
+      `Heads up: red flag signals (${keywordSignals.red_flags.join(", ")}). Qualify budget and accreditation early.`
+    );
+  }
+
+  // Default opener if nothing else
+  if (points.length === 0) {
+    points.push(
+      "Standard lead — start with discovery. Ask what brought them to Masterworks and what their current portfolio looks like."
+    );
+  }
+
+  return points.slice(0, 6); // cap at 6 talking points
+}
+
 // ─── Claude AI Synthesis ────────────────────────────────
 
 // Meeting type descriptions for Claude context
@@ -545,23 +689,18 @@ ${allPositiveSignals.length > 0 ? `- Positive signals in notes: ${allPositiveSig
 ${keywordSignals.red_flags.length > 0 ? `- Red flags: ${keywordSignals.red_flags.join(", ")}` : ""}
 
 THEIR NOTES/TOPIC: ${input.inviteeNotes || "None provided"}
-${input.customAnswers ? `\nFORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
+${input.customAnswers && input.bookingQuestions ? `\nFORM ANSWERS:\n${resolveFormAnswers(input.customAnswers, input.bookingQuestions).map((a) => `- ${a.label}: ${a.value}`).join("\n")}` : input.customAnswers ? `\nFORM ANSWERS: ${JSON.stringify(input.customAnswers)}` : ""}
 
 SIGNAL SCORE: ${tier1Score}/100${searchInstructions}`;
 
   try {
-    const model = useWebSearch ? "claude-sonnet-4-5-20250514" : "claude-haiku-4-5-20241022";
-
-    // Build tools array only when web search is enabled
-    const tools = useWebSearch
-      ? [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 }]
-      : undefined;
+    const model = "claude-sonnet-4-5-20250514";
 
     const response = await client.messages.create({
       model,
       max_tokens: 800,
       system: SYSTEM_PROMPT,
-      ...(tools ? { tools: tools as any } : {}),
+      tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 } as any],
       messages: [{ role: "user", content: userMessage }],
     });
 
@@ -680,7 +819,14 @@ export async function runEnrichmentPipeline(
     const penalty = signalBoost < 0 ? Math.abs(signalBoost) * 3 : 0;
     const tier1Score = Math.min(100, Math.max(10, BASELINE + scaledBoost - penalty));
 
-    // ── Step 2: Save signals + send Email 1 (signal-only prep) ──
+    // ── Step 2: Resolve form answers + generate talking points ──
+    const resolvedAnswers = resolveFormAnswers(input.customAnswers, input.bookingQuestions);
+    const talkingPoints = generateTalkingPoints(
+      emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals,
+      resolvedAnswers, input.meetingType, input.inviteeNotes,
+    );
+
+    // Save signals
     await supabaseAdmin
       .from("booking_enrichments")
       .update({
@@ -693,6 +839,7 @@ export async function runEnrichmentPipeline(
       })
       .eq("id", enrichmentId);
 
+    // ── Send Email 1 (signal prep with talking points + form answers) ──
     try {
       await sendMeetingPrepEmail({
         input,
@@ -702,6 +849,8 @@ export async function runEnrichmentPipeline(
         keywordSignals,
         tier1Score,
         claudeResult: null,
+        resolvedAnswers,
+        talkingPoints,
       });
       await supabaseAdmin
         .from("booking_enrichments")
@@ -712,24 +861,24 @@ export async function runEnrichmentPipeline(
       console.error("[Enrichment] Email 1 failed:", emailErr instanceof Error ? emailErr.message : emailErr);
     }
 
-    // ── Step 3: Claude AI synthesis + Email 2 (AI update) ──
+    // ── Step 3: Claude Sonnet + web_search (only when 15s+ remaining) ──
+    // Haiku without web search disabled — not enough value over signal analysis.
+    // Only run Claude Sonnet with web_search on Pro tier or dedicated endpoint.
     const elapsedSinceRequest = functionStartedAt ? Date.now() - functionStartedAt : Date.now() - pipelineStart + 3000;
-    const remainingForClaude = Math.max(0, totalBudgetMs - elapsedSinceRequest - 1500); // 1.5s buffer for email + save
-    // Use web_search only if 15+ seconds remain (Pro tier)
-    const useWebSearch = remainingForClaude > 15000;
+    const remainingForClaude = Math.max(0, totalBudgetMs - elapsedSinceRequest - 1500);
     let claudeResult: ClaudeResult | null = null;
     let totalCostCents = 0;
 
-    if (remainingForClaude > 3000) {
-      console.log(`[Enrichment] Claude call — ${remainingForClaude}ms budget, web_search=${useWebSearch}`);
+    if (remainingForClaude > 15000) {
+      console.log(`[Enrichment] Claude Sonnet + web_search — ${remainingForClaude}ms budget`);
       claudeResult = await synthesizeWithClaude(
-        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, useWebSearch,
+        input, emailAnalysis, phoneAnalysis, behaviorSignals, keywordSignals, tier1Score, true,
       );
       if (claudeResult) {
         totalCostCents = Math.max(1, Math.round((claudeResult.tokens_used / 1000) * 1.5));
       }
     } else {
-      console.warn(`[Enrichment] Skipping Claude — only ${remainingForClaude}ms remaining`);
+      console.log(`[Enrichment] Claude skipped — ${remainingForClaude}ms remaining (need 15s+ for Sonnet+web_search)`);
     }
 
     // Send Email 2 (AI update) if Claude produced results
@@ -764,7 +913,7 @@ export async function runEnrichmentPipeline(
     console.log(
       `[Enrichment] Done — booking=${input.bookingId}, tier1=${tier1Score}, ` +
       `ai=${claudeResult?.qualification_score ?? "skipped"}, ` +
-      `web_search=${useWebSearch}, cost=${totalCostCents}¢, ${Date.now() - pipelineStart}ms total`
+      `ai_used=${!!claudeResult}, cost=${totalCostCents}¢, ${Date.now() - pipelineStart}ms total`
     );
   } catch (err) {
     await supabaseAdmin
